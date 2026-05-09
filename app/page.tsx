@@ -14,10 +14,12 @@ import { AnimatePresence, motion } from "framer-motion";
 
 type Level = "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
 type OrbState = "idle" | "listening" | "waiting" | "thinking" | "speaking";
+type InputLang = "en" | "vi";
 
 // Cấu hình cho Silence Timeout (debounce gửi câu hỏi tới Groq)
 const SILENCE_MS = 2500; // 2.5s im lặng → gửi buffer
 const GRACE_MS = 600; // 0.6s im lặng → bật indicator "đang chờ"
+const IDLE_TIMEOUT_MS = 30000; // 30s tuyệt không nghe thấy gì → tự dừng hội thoại
 
 type WordBankItem = { term: string; vi: string };
 
@@ -26,6 +28,7 @@ type Profile = {
   level: Level;
   interests: string[];
   wordBank: WordBankItem[];
+  inputLang: InputLang;
 };
 
 type Message = {
@@ -55,6 +58,7 @@ const DEFAULT_PROFILE: Profile = {
   level: "A2",
   interests: [],
   wordBank: [],
+  inputLang: "en",
 };
 
 const LEVEL_BADGE: Record<Level, string> = {
@@ -92,6 +96,7 @@ function loadProfile(): Profile {
               vi: typeof w.vi === "string" ? w.vi : "",
             }))
         : [],
+      inputLang: p.inputLang === "vi" ? "vi" : "en",
     };
   } catch {
     return DEFAULT_PROFILE;
@@ -217,7 +222,8 @@ export default function Page() {
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Ctor) return null;
     const r = new Ctor();
-    r.lang = "en-US";
+    // Đọc từ ref để toggle ngôn ngữ giữa hội thoại có hiệu lực ngay turn kế tiếp.
+    r.lang = profileRef.current.inputLang === "vi" ? "vi-VN" : "en-US";
     r.continuous = true; // KHÔNG tự dừng khi user pause — ta tự quản qua silence timer
     r.interimResults = true;
     r.maxAlternatives = 1;
@@ -237,6 +243,7 @@ export default function Page() {
       let attached: any = null;
       let waitingTimer: ReturnType<typeof setTimeout> | null = null;
       let startAttempts = 0;
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
       const clearTimers = () => {
         if (waitingTimer) {
@@ -247,7 +254,42 @@ export default function Page() {
           clearTimeout(flushTimerRef.current);
           flushTimerRef.current = null;
         }
+        if (idleTimer) {
+          clearTimeout(idleTimer);
+          idleTimer = null;
+        }
       };
+
+      // Tự dừng toàn bộ hội thoại nếu 30s không nghe thấy bất kỳ tiếng nói nào.
+      const stopForIdle = () => {
+        if (resolved) return;
+        resolved = true;
+        stoppedManually = true;
+        clearTimers();
+        setIsWaiting(false);
+        setIsListening(false);
+        setInterim("");
+        try {
+          attached?.stop?.();
+        } catch {
+          /* noop */
+        }
+        recognitionRef.current = null;
+        // Báo runLoop dừng vòng lặp ngay lập tức.
+        isActiveRef.current = false;
+        setIsActive(false);
+        setError(
+          "Đã tự dừng vì 30 giây không nghe thấy bạn nói. Bấm Start để tiếp tục."
+        );
+        resolve("");
+      };
+
+      const armIdleTimer = () => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(stopForIdle, IDLE_TIMEOUT_MS);
+      };
+      // Khởi động idle timer ngay khi listenOnce bắt đầu.
+      armIdleTimer();
 
       const finalize = () => {
         if (resolved) return;
@@ -271,6 +313,8 @@ export default function Page() {
         // Hiện tại có hoạt động → không "đang chờ" nữa
         setIsWaiting(false);
         clearTimers();
+        // User vẫn còn nói → reset đồng hồ đếm 30s im lặng tuyệt đối.
+        armIdleTimer();
 
         // Sau GRACE_MS không nghe gì thêm → bật indicator "đang chờ" nếu buffer có nội dung
         waitingTimer = setTimeout(() => {
@@ -501,6 +545,7 @@ export default function Page() {
             level: profileRef.current.level,
             interests: profileRef.current.interests,
           },
+          inputLang: profileRef.current.inputLang,
         }),
       });
 
@@ -666,13 +711,24 @@ export default function Page() {
     setProfile((p) => ({ ...p, wordBank: [], interests: [] }));
   }, []);
 
+  // ----- Toggle ngôn ngữ mic (EN ↔ VI) -----
+  // Nếu đang trong hội thoại, abort recognition để turn kế tiếp tạo mới với lang đúng.
+  const toggleInputLang = useCallback(() => {
+    setProfile((p) => ({ ...p, inputLang: p.inputLang === "vi" ? "en" : "vi" }));
+    try {
+      recognitionRef.current?.abort?.();
+    } catch {
+      /* noop */
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black text-slate-100">
       <div className="mx-auto grid w-full max-w-6xl gap-6 p-4 md:p-6 lg:grid-cols-[1fr_320px]">
         {/* MAIN */}
         <main className="flex flex-col items-center gap-4">
           {/* Header */}
-          <div className="flex w-full items-start justify-between">
+          <div className="flex w-full items-start justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold tracking-tight md:text-2xl">
                 Elara
@@ -681,7 +737,10 @@ export default function Page() {
                 Adaptive AI English tutor • Hands-free
               </p>
             </div>
-            <LevelBadge level={profile.level} />
+            <div className="flex items-center gap-2">
+              <LangToggle lang={profile.inputLang} onToggle={toggleInputLang} />
+              <LevelBadge level={profile.level} />
+            </div>
           </div>
 
           {/* Robot face */}
@@ -696,7 +755,11 @@ export default function Page() {
             )}
             {orbState === "listening" && (
               <span className="text-slate-300">
-                {interim ? `“${interim}”` : "Đang nghe…"}
+                {interim
+                  ? `“${interim}”`
+                  : profile.inputLang === "vi"
+                    ? "Đang nghe (tiếng Việt)…"
+                    : "Đang nghe…"}
               </span>
             )}
             {orbState === "waiting" && (
@@ -769,6 +832,38 @@ function LevelBadge({ level }: { level: Level }) {
     >
       {level}
     </div>
+  );
+}
+
+// ============================================================
+// LANG TOGGLE — chuyển ngôn ngữ mic giữa EN ↔ VI
+// ============================================================
+
+function LangToggle({
+  lang,
+  onToggle,
+}: {
+  lang: InputLang;
+  onToggle: () => void;
+}) {
+  const isVi = lang === "vi";
+  return (
+    <button
+      onClick={onToggle}
+      title={
+        isVi
+          ? "Mic đang nghe tiếng Việt — bấm để chuyển về tiếng Anh"
+          : "Mic đang nghe tiếng Anh — bấm để bật chế độ tiếng Việt"
+      }
+      className={`group flex select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wider transition ${
+        isVi
+          ? "border-rose-400/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/25"
+          : "border-sky-400/40 bg-sky-500/15 text-sky-200 hover:bg-sky-500/25"
+      }`}
+    >
+      <span className="text-base leading-none">{isVi ? "🇻🇳" : "🇺🇸"}</span>
+      <span>{isVi ? "VI" : "EN"}</span>
+    </button>
   );
 }
 

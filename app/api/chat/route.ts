@@ -19,6 +19,7 @@ type Profile = {
 };
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
+type InputLang = "en" | "vi";
 
 // ============================================================
 // SYSTEM PROMPT — Elara: Adaptive AI English Tutor
@@ -62,6 +63,17 @@ const SYSTEM_PROMPT = [
   "- Never start with filler like 'As an AI…'. Just talk like a person.",
 ].join("\n");
 
+// Bổ sung khi user bật Vietnamese-input mode trên client.
+// Chỉ inject khi cần để tiết kiệm token và tránh nhiễu prompt cho EN-only flow.
+const VI_INPUT_INSTRUCTION = [
+  "BILINGUAL INPUT — Vietnamese speech recognition is ACTIVE this turn.",
+  "- The user's message may be in Vietnamese, English, or mixed. Read it carefully.",
+  "- TRANSLATION REQUEST: if the user wants you to translate (e.g. \"dịch giúp tôi…\", \"how do I say X in English?\", or just a Vietnamese sentence they clearly want rendered into English), put the most natural spoken English version in \"reply\". Use the \"vietnamese\" field for a short coaching note in Vietnamese (a more natural alternative, register/tone, or 1 common pitfall) — keep it under 25 words.",
+  "- NORMAL VIETNAMESE CHAT: if the user just speaks Vietnamese to share a thought, respond in English at i+1 level to continue the conversation, and put the Vietnamese translation of your reply in \"vietnamese\" as usual.",
+  "- ALWAYS reply in English inside \"reply\" — it will be spoken aloud and is the user's listening practice. Never write Vietnamese in \"reply\".",
+  "- If the input is mixed-language, prefer treating it as English-first.",
+].join("\n");
+
 // ============================================================
 // HELPERS
 // ============================================================
@@ -96,6 +108,7 @@ export async function POST(req: Request) {
     const body = (await req.json()) as {
       messages?: ChatMessage[];
       profile?: Profile;
+      inputLang?: InputLang;
     };
 
     if (!Array.isArray(body.messages) || body.messages.length === 0) {
@@ -104,6 +117,8 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    const inputLang: InputLang = body.inputLang === "vi" ? "vi" : "en";
 
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
@@ -128,6 +143,9 @@ export async function POST(req: Request) {
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "system", content: buildProfileContext(body.profile) },
+          ...(inputLang === "vi"
+            ? [{ role: "system" as const, content: VI_INPUT_INSTRUCTION }]
+            : []),
           ...body.messages,
         ],
       }),
