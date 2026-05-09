@@ -20,6 +20,10 @@ type InputLang = "en" | "vi";
 const SILENCE_MS = 2500; // 2.5s im lặng → gửi buffer
 const GRACE_MS = 600; // 0.6s im lặng → bật indicator "đang chờ"
 const IDLE_TIMEOUT_MS = 30000; // 30s tuyệt không nghe thấy gì → tự dừng hội thoại
+// Smart Hint: nếu user kẹt giữa câu (>2s im lặng nhưng buffer chưa đủ để flush)
+// → gọi /api/hint. Đặt trước SILENCE_MS để hint kịp hiện trước khi flush.
+const HINT_DELAY_MS = 2000;
+const HINT_AUTO_DISMISS_MS = 8000; // hint tự ẩn sau 8s nếu user không tương tác
 
 type WordBankItem = { term: string; vi: string };
 
@@ -31,11 +35,21 @@ type Profile = {
   inputLang: InputLang;
 };
 
+type BetterWay = { original: string; improved: string };
+
 type Message = {
   role: "user" | "assistant";
   content: string;
   vietnamese?: string;
   suggestion?: string;
+  betterWay?: BetterWay;
+};
+
+type BrainstormResult = {
+  idea: string;
+  topic: string;
+  vocabulary: WordBankItem[];
+  starters: string[];
 };
 
 declare global {
@@ -164,6 +178,15 @@ export default function Page() {
   const [interim, setInterim] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // ----- Smart Hint -----
+  const [smartHint, setSmartHint] = useState<string>("");
+
+  // ----- Brainstorm (Think Out Loud) -----
+  const [brainstormResult, setBrainstormResult] =
+    useState<BrainstormResult | null>(null);
+  const [isBrainstorming, setIsBrainstorming] = useState(false);
+  const [isBrainstormLoading, setIsBrainstormLoading] = useState(false);
+
   // ----- Refs -----
   const isActiveRef = useRef(false);
   const historyRef = useRef<Message[]>([]);
@@ -172,6 +195,12 @@ export default function Page() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   // Timer flush buffer sau 2.5s im lặng — giữ ở ref để stopConversation có thể clear
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Khi true, buildRecognition ép lang về vi-VN bất kể profile.inputLang.
+  // Dùng cho Brainstorm để user thoải mái nói tiếng Việt.
+  const brainstormModeRef = useRef(false);
+  // Cờ chống fetch hint trùng nhau / fetch khi đã có hint đang hiển thị.
+  const hintInflightRef = useRef(false);
+  const hintDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ----- Hydrate profile from localStorage on mount -----
   useEffect(() => {
@@ -222,8 +251,13 @@ export default function Page() {
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Ctor) return null;
     const r = new Ctor();
-    // Đọc từ ref để toggle ngôn ngữ giữa hội thoại có hiệu lực ngay turn kế tiếp.
-    r.lang = profileRef.current.inputLang === "vi" ? "vi-VN" : "en-US";
+    // Brainstorm luôn dùng vi-VN (cho phép user nói Việt thoải mái khi nêu ý).
+    // Còn lại đọc từ profile để toggle EN/VI có hiệu lực ngay turn kế tiếp.
+    if (brainstormModeRef.current) {
+      r.lang = "vi-VN";
+    } else {
+      r.lang = profileRef.current.inputLang === "vi" ? "vi-VN" : "en-US";
+    }
     r.continuous = true; // KHÔNG tự dừng khi user pause — ta tự quản qua silence timer
     r.interimResults = true;
     r.maxAlternatives = 1;
@@ -244,6 +278,7 @@ export default function Page() {
       let waitingTimer: ReturnType<typeof setTimeout> | null = null;
       let startAttempts = 0;
       let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      let hintTimer: ReturnType<typeof setTimeout> | null = null;
 
       const clearTimers = () => {
         if (waitingTimer) {
@@ -257,6 +292,44 @@ export default function Page() {
         if (idleTimer) {
           clearTimeout(idleTimer);
           idleTimer = null;
+        }
+        if (hintTimer) {
+          clearTimeout(hintTimer);
+          hintTimer = null;
+        }
+      };
+
+      // Detect Vietnamese diacritics — dùng để fire hint NGAY khi user nói Việt
+      // trong EN mode (transcript có thể dính tiếng Việt khi user code-switch).
+      const VI_CHAR_RE =
+        /[àáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựýỳỷỹỵđÀÁẢÃẠÂẤẦẨẪẬĂẮẰẲẴẶÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰÝỲỶỸỴĐ]/;
+
+      const fetchHint = async (partial: string) => {
+        const txt = partial.trim();
+        if (!txt || hintInflightRef.current) return;
+        hintInflightRef.current = true;
+        try {
+          const res = await fetch("/api/hint", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: txt }),
+          });
+          if (!res.ok) return;
+          const data = (await res.json()) as { hint?: string };
+          const hint = (data.hint ?? "").trim();
+          if (!hint || resolved) return;
+          setSmartHint(hint);
+          if (hintDismissTimerRef.current) {
+            clearTimeout(hintDismissTimerRef.current);
+          }
+          hintDismissTimerRef.current = setTimeout(
+            () => setSmartHint(""),
+            HINT_AUTO_DISMISS_MS
+          );
+        } catch {
+          /* hint là nice-to-have, fail êm */
+        } finally {
+          hintInflightRef.current = false;
         }
       };
 
@@ -299,6 +372,12 @@ export default function Page() {
         setIsWaiting(false);
         setIsListening(false);
         setInterim("");
+        // Hint không còn liên quan khi đã flush
+        setSmartHint("");
+        if (hintDismissTimerRef.current) {
+          clearTimeout(hintDismissTimerRef.current);
+          hintDismissTimerRef.current = null;
+        }
         try {
           attached?.stop?.();
         } catch {
@@ -309,17 +388,36 @@ export default function Page() {
       };
 
       // Mỗi khi nghe thấy hoạt động giọng nói (final hoặc interim)
-      const onActivity = () => {
+      const onActivity = (latestInterim?: string) => {
         // Hiện tại có hoạt động → không "đang chờ" nữa
         setIsWaiting(false);
         clearTimers();
         // User vẫn còn nói → reset đồng hồ đếm 30s im lặng tuyệt đối.
         armIdleTimer();
 
+        // Khi có hoạt động mới, hint cũ không còn liên quan.
+        setSmartHint("");
+        if (hintDismissTimerRef.current) {
+          clearTimeout(hintDismissTimerRef.current);
+          hintDismissTimerRef.current = null;
+        }
+
         // Sau GRACE_MS không nghe gì thêm → bật indicator "đang chờ" nếu buffer có nội dung
         waitingTimer = setTimeout(() => {
           if (buffer.trim().length > 0) setIsWaiting(true);
         }, GRACE_MS);
+
+        // Smart Hint: nếu user kẹt (im lặng ~2s với buffer có nội dung) → fetch gợi ý.
+        // Dùng cả buffer (đoạn final) lẫn interim mới nhất để LLM có context tối đa.
+        const hintInputBase = (
+          buffer +
+          (latestInterim ? " " + latestInterim : "")
+        ).trim();
+        if (hintInputBase.length >= 4) {
+          hintTimer = setTimeout(() => {
+            void fetchHint(hintInputBase);
+          }, HINT_DELAY_MS);
+        }
 
         // Sau SILENCE_MS không nghe gì thêm → flush buffer (chỉ khi có nội dung)
         flushTimerRef.current = setTimeout(() => {
@@ -330,6 +428,14 @@ export default function Page() {
             setIsWaiting(false);
           }
         }, SILENCE_MS);
+
+        // Trigger nhanh: nếu interim/final dính ký tự tiếng Việt rõ rệt → fetch hint
+        // ngay (không đợi 2s). User code-switch là dấu hiệu chắc chắn họ đang kẹt.
+        const fullText =
+          buffer + (latestInterim ? " " + latestInterim : "");
+        if (VI_CHAR_RE.test(fullText) && hintInputBase.length >= 2) {
+          void fetchHint(hintInputBase);
+        }
       };
 
       const start = () => {
@@ -364,7 +470,7 @@ export default function Page() {
           }
           setInterim(interimText);
           if (appendedFinal || interimText.trim().length > 0) {
-            onActivity();
+            onActivity(interimText);
           }
         };
 
@@ -529,6 +635,7 @@ export default function Page() {
       reply: string;
       vietnamese: string;
       suggestion: string;
+      betterWay: BetterWay;
     } | null> => {
       const newHistory: Message[] = [
         ...historyRef.current,
@@ -559,6 +666,7 @@ export default function Page() {
         userLevel?: Level;
         vietnamese?: string;
         suggestion?: string;
+        betterWay?: BetterWay;
         vocabulary?: WordBankItem[];
         interests?: string[];
       };
@@ -566,6 +674,11 @@ export default function Page() {
       const reply = (data.reply ?? "").trim();
       const vietnamese = (data.vietnamese ?? "").trim();
       const suggestion = (data.suggestion ?? "").trim();
+      const bw = data.betterWay;
+      const betterWay: BetterWay =
+        bw && typeof bw.original === "string" && typeof bw.improved === "string"
+          ? { original: bw.original.trim(), improved: bw.improved.trim() }
+          : { original: "", improved: "" };
       const newWords = Array.isArray(data.vocabulary) ? data.vocabulary : [];
       const newInterests = Array.isArray(data.interests) ? data.interests : [];
       const nextLevel: Level = ALL_LEVELS.includes(data.userLevel as Level)
@@ -590,7 +703,7 @@ export default function Page() {
         ),
       }));
 
-      return { reply, vietnamese, suggestion };
+      return { reply, vietnamese, suggestion, betterWay };
     },
     []
   );
@@ -618,6 +731,7 @@ export default function Page() {
             content: result.reply,
             vietnamese: result.vietnamese,
             suggestion: result.suggestion,
+            betterWay: result.betterWay,
           },
         ]);
         await speak(result.reply);
@@ -722,6 +836,66 @@ export default function Page() {
     }
   }, []);
 
+  // ----- Brainstorm (Think Out Loud) -----
+  // One-shot: user nói 1 idea → /api/brainstorm trả outline → hiện card text-only.
+  // Không phát âm (không TTS). Không đẩy vào history chat.
+  const startBrainstorm = useCallback(async () => {
+    if (isActiveRef.current || isBrainstorming) return;
+    setError(null);
+    setBrainstormResult(null);
+    setIsBrainstorming(true);
+    // Đặt isActive để listenOnce đi qua các nhánh "active" bình thường
+    isActiveRef.current = true;
+    setIsActive(true);
+    brainstormModeRef.current = true;
+    try {
+      const idea = await listenOnce();
+      brainstormModeRef.current = false;
+      isActiveRef.current = false;
+      setIsActive(false);
+      if (!idea.trim()) {
+        setIsBrainstorming(false);
+        return;
+      }
+      setIsBrainstormLoading(true);
+      const res = await fetch("/api/brainstorm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idea }),
+      });
+      setIsBrainstormLoading(false);
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        setError(errBody?.error || `API error ${res.status}`);
+        setIsBrainstorming(false);
+        return;
+      }
+      const data = (await res.json()) as {
+        topic?: string;
+        vocabulary?: WordBankItem[];
+        starters?: string[];
+      };
+      setBrainstormResult({
+        idea,
+        topic: (data.topic ?? "").trim(),
+        vocabulary: Array.isArray(data.vocabulary) ? data.vocabulary : [],
+        starters: Array.isArray(data.starters) ? data.starters : [],
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi brainstorm");
+    } finally {
+      brainstormModeRef.current = false;
+      isActiveRef.current = false;
+      setIsActive(false);
+      setIsBrainstorming(false);
+      setIsBrainstormLoading(false);
+    }
+  }, [listenOnce, isBrainstorming]);
+
+  const dismissBrainstorm = useCallback(() => {
+    setBrainstormResult(null);
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black text-slate-100">
       <div className="mx-auto grid w-full max-w-6xl gap-6 p-4 md:p-6 lg:grid-cols-[1fr_320px]">
@@ -731,10 +905,10 @@ export default function Page() {
           <div className="flex w-full items-start justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold tracking-tight md:text-2xl">
-                Elara
+                Kong
               </h1>
               <p className="text-xs text-slate-400 md:text-sm">
-                Adaptive AI English tutor • Hands-free
+                Empathetic English tutor • Hands-free
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -748,42 +922,66 @@ export default function Page() {
 
           {/* Caption */}
           <div className="h-6 text-sm">
-            {orbState === "idle" && (
-              <span className="text-slate-300">
-                Nhấn Start để bắt đầu hội thoại
+            {isBrainstorming ? (
+              <span className="italic text-violet-300/90">
+                {isBrainstormLoading
+                  ? "Đang lập dàn ý…"
+                  : "Brainstorm — nói ý của bạn (Việt/Anh đều được)…"}
               </span>
-            )}
-            {orbState === "listening" && (
-              <span className="text-slate-300">
-                {interim
-                  ? `“${interim}”`
-                  : profile.inputLang === "vi"
-                    ? "Đang nghe (tiếng Việt)…"
-                    : "Đang nghe…"}
-              </span>
-            )}
-            {orbState === "waiting" && (
-              <span className="italic text-amber-300/80">
-                Elara is waiting for you...
-              </span>
-            )}
-            {orbState === "thinking" && (
-              <span className="text-slate-300">Đang suy nghĩ…</span>
-            )}
-            {orbState === "speaking" && (
-              <span className="text-slate-300">Elara đang nói…</span>
+            ) : (
+              <>
+                {orbState === "idle" && (
+                  <span className="text-slate-300">
+                    Nhấn Start để bắt đầu hội thoại
+                  </span>
+                )}
+                {orbState === "listening" && (
+                  <span className="text-slate-300">
+                    {interim
+                      ? `“${interim}”`
+                      : profile.inputLang === "vi"
+                        ? "Đang nghe (tiếng Việt)…"
+                        : "Đang nghe…"}
+                  </span>
+                )}
+                {orbState === "waiting" && (
+                  <span className="italic text-amber-300/80">
+                    Kong is waiting for you...
+                  </span>
+                )}
+                {orbState === "thinking" && (
+                  <span className="text-slate-300">Đang suy nghĩ…</span>
+                )}
+                {orbState === "speaking" && (
+                  <span className="text-slate-300">Kong đang nói…</span>
+                )}
+              </>
             )}
           </div>
 
+          {/* Smart Hint — bubble nhỏ dưới caption, tự ẩn sau ~8s */}
+          <SmartHintBubble hint={smartHint} onDismiss={() => setSmartHint("")} />
+
           {/* Controls */}
-          <div className="flex gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             {!isActive ? (
-              <button
-                onClick={startConversation}
-                className="rounded-full bg-emerald-500 px-7 py-2.5 font-medium text-black shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
-              >
-                Start
-              </button>
+              <>
+                <button
+                  onClick={startConversation}
+                  disabled={isBrainstorming}
+                  className="rounded-full bg-emerald-500 px-7 py-2.5 font-medium text-black shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Start
+                </button>
+                <button
+                  onClick={startBrainstorm}
+                  disabled={isBrainstorming}
+                  title="Nói đại ý của bạn (Việt/Anh) — Kong sẽ trả về dàn ý không phát thành tiếng"
+                  className="rounded-full border border-violet-400/40 bg-violet-500/15 px-5 py-2.5 text-sm font-medium text-violet-100 transition hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  💡 Brainstorm
+                </button>
+              </>
             ) : (
               <button
                 onClick={stopConversation}
@@ -799,6 +997,16 @@ export default function Page() {
               {error}
             </p>
           )}
+
+          {/* Brainstorm card — outline text-only, không phát âm */}
+          <AnimatePresence>
+            {brainstormResult && (
+              <BrainstormCard
+                result={brainstormResult}
+                onDismiss={dismissBrainstorm}
+              />
+            )}
+          </AnimatePresence>
 
           {/* Chat history */}
           <div className="w-full">
@@ -827,7 +1035,7 @@ export default function Page() {
 function LevelBadge({ level }: { level: Level }) {
   return (
     <div
-      title="Trình độ Elara đang ước lượng cho bạn"
+      title="Trình độ Kong đang ước lượng cho bạn"
       className={`select-none rounded-full border px-3 py-1 text-xs font-bold tracking-widest ${LEVEL_BADGE[level]}`}
     >
       {level}
@@ -864,6 +1072,130 @@ function LangToggle({
       <span className="text-base leading-none">{isVi ? "🇻🇳" : "🇺🇸"}</span>
       <span>{isVi ? "VI" : "EN"}</span>
     </button>
+  );
+}
+
+// ============================================================
+// SMART HINT BUBBLE — gợi ý từ vựng nhỏ khi user kẹt giữa câu
+// (text-only, không phát âm). Tự ẩn sau ~8s; user có thể bấm × để đóng.
+// ============================================================
+
+function SmartHintBubble({
+  hint,
+  onDismiss,
+}: {
+  hint: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {hint && (
+        <motion.div
+          initial={{ opacity: 0, y: -4, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -4, scale: 0.96 }}
+          transition={{ duration: 0.18 }}
+          className="flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-100 shadow-md backdrop-blur-sm"
+        >
+          <span>💡</span>
+          <span className="italic">{hint}</span>
+          <button
+            onClick={onDismiss}
+            aria-label="Đóng gợi ý"
+            className="ml-1 rounded-full px-1 text-amber-200/70 transition hover:bg-amber-400/20 hover:text-amber-100"
+          >
+            ×
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ============================================================
+// BRAINSTORM CARD — outline ngắn (Topic / Vocabulary / Starters)
+// Text-only, không TTS. User dùng để chuẩn bị trước khi nói.
+// ============================================================
+
+function BrainstormCard({
+  result,
+  onDismiss,
+}: {
+  result: BrainstormResult;
+  onDismiss: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ duration: 0.25 }}
+      className="w-full max-w-2xl rounded-2xl border border-violet-400/30 bg-violet-500/10 p-4 backdrop-blur-sm"
+    >
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-violet-300/90">
+            💡 Brainstorm
+          </div>
+          {result.topic && (
+            <div className="mt-0.5 text-sm font-medium text-violet-50">
+              {result.topic}
+            </div>
+          )}
+          {result.idea && (
+            <div className="mt-0.5 text-[11px] italic text-violet-200/60">
+              Bạn nói: “{result.idea}”
+            </div>
+          )}
+        </div>
+        <button
+          onClick={onDismiss}
+          aria-label="Đóng dàn ý"
+          className="rounded-full px-2 py-0.5 text-violet-200/70 transition hover:bg-violet-400/20 hover:text-violet-50"
+        >
+          ×
+        </button>
+      </div>
+
+      {result.vocabulary.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-200/80">
+            Key Vocabulary
+          </div>
+          <ul className="flex flex-col gap-1">
+            {result.vocabulary.map((v, i) => (
+              <li
+                key={`${v.term}-${i}`}
+                className="rounded-md bg-black/20 px-2.5 py-1.5 text-xs"
+              >
+                <span className="font-medium text-violet-100">{v.term}</span>
+                {v.vi && (
+                  <span className="ml-2 italic text-slate-400">— {v.vi}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {result.starters.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-200/80">
+            Sentence Starters
+          </div>
+          <ul className="flex flex-col gap-1">
+            {result.starters.map((s, i) => (
+              <li
+                key={`starter-${i}`}
+                className="rounded-md border border-violet-400/20 bg-black/20 px-2.5 py-1.5 text-xs italic text-violet-50"
+              >
+                “{s}”
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </motion.div>
   );
 }
 
@@ -1160,7 +1492,7 @@ function ChatHistory({
             {history.map((m, i) => {
               const isUser = m.role === "user";
               const isLast = i === history.length - 1;
-              // Mờ các tin nhắn cũ khi Elara đang nói để user tập trung
+              // Mờ các tin nhắn cũ khi Kong đang nói để user tập trung
               const dim = isSpeaking && !isLast;
               return (
                 <motion.div
@@ -1209,7 +1541,7 @@ function Bubble({
           isUser ? "text-sky-300" : "text-emerald-300"
         }`}
       >
-        {isUser ? "You" : "Elara"}
+        {isUser ? "You" : "Kong"}
       </div>
       <div className="text-slate-50">{m.content}</div>
 
@@ -1249,6 +1581,21 @@ function Bubble({
         <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200/90">
           <span>💡</span>
           <span className="italic">{m.suggestion}</span>
+        </div>
+      )}
+
+      {/* "Better way to say it" — paraphrase tự nhiên hơn cho 1 câu user vừa nói */}
+      {!isUser && m.betterWay?.original && m.betterWay?.improved && (
+        <div className="mt-2 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/10 p-2.5 text-[11px] leading-relaxed">
+          <div className="mb-1 font-semibold uppercase tracking-wider text-fuchsia-200/90">
+            ✨ Better way to say it
+          </div>
+          <div className="text-slate-300/80 line-through decoration-fuchsia-300/40">
+            {m.betterWay.original}
+          </div>
+          <div className="mt-0.5 text-fuchsia-100">
+            → {m.betterWay.improved}
+          </div>
         </div>
       )}
     </div>
