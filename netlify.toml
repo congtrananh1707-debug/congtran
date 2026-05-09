@@ -1,0 +1,17 @@
+# Netlify config cho project Next.js này.
+# - Đặt file này TRONG thư mục english-tutor (cùng cấp package.json).
+# - Nếu repo gốc là clanhub (đa project), vào Netlify UI:
+#     Site settings → Build & deploy → Build settings → Base directory = "english-tutor"
+#   để Netlify lấy đúng folder này làm gốc build.
+
+[build]
+  command = "npm run build"
+
+[build.environment]
+  # Next 13.5 yêu cầu Node ≥ 16.14. 18.18 ổn cho cả Netlify default toolchain.
+  NODE_VERSION = "18.18.0"
+
+# Plugin Next.js của Netlify — biến /api/chat thành Netlify Function tự động,
+# inject env vars (GROQ_API_KEY) vào runtime, và xử lý publish dir.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
