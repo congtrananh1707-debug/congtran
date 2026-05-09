@@ -125,6 +125,21 @@ function mergeUnique<T>(
   return merged.length > max ? merged.slice(merged.length - max) : merged;
 }
 
+function pickBestVoice(): SpeechSynthesisVoice | null {
+  if (typeof window === "undefined") return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return null;
+  return (
+    voices.find((v) => v.name === "Google US English") ||
+    voices.find(
+      (v) => v.lang === "en-US" && v.name.toLowerCase().includes("google")
+    ) ||
+    voices.find((v) => v.lang === "en-US") ||
+    voices[0] ||
+    null
+  );
+}
+
 // ============================================================
 // PAGE
 // ============================================================
@@ -182,19 +197,11 @@ export default function Page() {
     });
   }, [history.length]);
 
-  // ----- Tải voice "Google US English" nếu có -----
+  // ----- Tải voice "Google US English" nếu có (mobile thường nạp async) -----
   useEffect(() => {
     if (typeof window === "undefined") return;
     const pickVoice = () => {
-      const voices = window.speechSynthesis.getVoices();
-      voiceRef.current =
-        voices.find((v) => v.name === "Google US English") ||
-        voices.find(
-          (v) => v.lang === "en-US" && v.name.toLowerCase().includes("google")
-        ) ||
-        voices.find((v) => v.lang === "en-US") ||
-        voices[0] ||
-        null;
+      voiceRef.current = pickBestVoice();
     };
     pickVoice();
     window.speechSynthesis.onvoiceschanged = pickVoice;
@@ -229,6 +236,7 @@ export default function Page() {
       let stoppedManually = false;
       let attached: any = null;
       let waitingTimer: ReturnType<typeof setTimeout> | null = null;
+      let startAttempts = 0;
 
       const clearTimers = () => {
         if (waitingTimer) {
@@ -344,25 +352,42 @@ export default function Page() {
             return;
           }
           // Trường hợp 3: trình duyệt tự ngắt giữa chừng (no-speech, network…)
-          // → khởi động lại NGAY để giữ trải nghiệm liên tục, KHÔNG flush buffer.
-          try {
-            start();
-          } catch {
-            resolved = true;
-            clearTimers();
-            setIsWaiting(false);
-            setIsListening(false);
-            setInterim("");
-            recognitionRef.current = null;
-            resolve(buffer.trim());
-          }
+          // → đợi mic giải phóng (~150ms) rồi tạo recognition mới, KHÔNG flush buffer.
+          setTimeout(() => {
+            if (resolved || !isActiveRef.current) return;
+            try {
+              start();
+            } catch {
+              resolved = true;
+              clearTimers();
+              setIsWaiting(false);
+              setIsListening(false);
+              setInterim("");
+              recognitionRef.current = null;
+              resolve(buffer.trim());
+            }
+          }, 150);
         };
 
         try {
           r.start();
           setIsListening(true);
         } catch {
-          // InvalidStateError nếu r.start() đụng nhau — bỏ qua
+          // InvalidStateError: instance cũ chưa giải phóng mic.
+          // Retry tối đa 4 lần, mỗi lần tạo recognition mới sau 250ms.
+          startAttempts++;
+          if (startAttempts < 4 && !resolved && isActiveRef.current) {
+            setTimeout(() => {
+              if (!resolved && isActiveRef.current) start();
+            }, 250);
+          } else if (!resolved) {
+            resolved = true;
+            clearTimers();
+            setIsListening(false);
+            setInterim("");
+            recognitionRef.current = null;
+            resolve(buffer.trim());
+          }
         }
       };
 
@@ -377,6 +402,8 @@ export default function Page() {
         resolve();
         return;
       }
+      const synth = window.speechSynthesis;
+
       // Phòng hờ — đảm bảo không có recognition còn sống
       try {
         recognitionRef.current?.abort?.();
@@ -384,24 +411,69 @@ export default function Page() {
         /* noop */
       }
 
+      // Mobile có thể chưa nạp voices ở mount → thử lại lần nữa.
+      if (!voiceRef.current) voiceRef.current = pickBestVoice();
+
       const u = new SpeechSynthesisUtterance(text);
-      u.voice = voiceRef.current;
+      // Chỉ gán voice nếu thực sự có. iOS Safari đôi khi câm khi voice = null.
+      if (voiceRef.current) u.voice = voiceRef.current;
       u.lang = "en-US";
       u.rate = 1;
       u.pitch = 1;
+      u.volume = 1;
 
-      u.onstart = () => setIsSpeaking(true);
+      // Android Chrome bug: speechSynthesis tự "treo" sau ~15s phát liên tục.
+      // Pause/resume định kỳ để giữ phát âm thông cho câu dài.
+      let resumeTimer: ReturnType<typeof setInterval> | null = null;
+      const stopWatchdog = () => {
+        if (resumeTimer) {
+          clearInterval(resumeTimer);
+          resumeTimer = null;
+        }
+      };
+
+      u.onstart = () => {
+        setIsSpeaking(true);
+        resumeTimer = setInterval(() => {
+          if (!synth.speaking) {
+            stopWatchdog();
+            return;
+          }
+          try {
+            synth.pause();
+            synth.resume();
+          } catch {
+            /* noop */
+          }
+        }, 10000);
+      };
       u.onend = () => {
+        stopWatchdog();
         setIsSpeaking(false);
         resolve(); // Vòng lặp CHỈ tiếp tục sau khi onend kích hoạt hoàn toàn
       };
       u.onerror = () => {
+        stopWatchdog();
         setIsSpeaking(false);
         resolve();
       };
 
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
+      // Đợi mic giải phóng audio session + clear queue cũ rồi mới speak.
+      // Trên Android Chrome, cancel() và speak() gọi sát nhau hay nuốt utterance.
+      setTimeout(() => {
+        try {
+          if (synth.speaking || synth.pending) synth.cancel();
+        } catch {
+          /* noop */
+        }
+        try {
+          synth.speak(u);
+        } catch {
+          stopWatchdog();
+          setIsSpeaking(false);
+          resolve();
+        }
+      }, 100);
     });
   }, []);
 
@@ -504,6 +576,10 @@ export default function Page() {
           },
         ]);
         await speak(result.reply);
+        // Mobile (đặc biệt Android Chrome) cần một nhịp để giải phóng audio
+        // session sau khi loa vừa phát; không có gap này, recognition.start()
+        // lần kế tiếp hay throw InvalidStateError → câm hoàn toàn từ câu thứ hai.
+        await new Promise((r) => setTimeout(r, 250));
       } catch (err) {
         setIsThinking(false);
         const msg = err instanceof Error ? err.message : "Lỗi không xác định";
@@ -515,6 +591,24 @@ export default function Page() {
 
   const startConversation = useCallback(() => {
     setError(null);
+
+    // Mở khoá speechSynthesis bằng một utterance siêu ngắn ngay trong user gesture.
+    // iOS Safari & Android Chrome chặn TTS cho tới khi có ít nhất 1 lần speak()
+    // chạy trực tiếp từ tap đầu tiên — nếu không, các speak() sau (nằm sau await)
+    // sẽ bị coi là không phải user gesture và câm hoàn toàn.
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        const unlock = new SpeechSynthesisUtterance(" ");
+        unlock.volume = 1;
+        unlock.rate = 10;
+        window.speechSynthesis.speak(unlock);
+      } catch {
+        /* noop */
+      }
+      // Android Chrome thường chỉ trả voices SAU user gesture đầu tiên.
+      if (!voiceRef.current) voiceRef.current = pickBestVoice();
+    }
+
     setIsActive(true);
     isActiveRef.current = true;
     void runLoop();

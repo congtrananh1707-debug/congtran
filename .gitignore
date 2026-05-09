@@ -7,5 +7,8 @@ out
 *.log
 .DS_Store
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
 # Local Netlify folder
 .netlify
