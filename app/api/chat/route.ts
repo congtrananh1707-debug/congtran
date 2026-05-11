@@ -16,6 +16,7 @@ type Profile = {
   name?: string;
   level?: Level;
   interests?: string[];
+  levelLocked?: boolean;
 };
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -48,11 +49,21 @@ const SYSTEM_PROMPT = [
   "- If the user only said a fragment, a single word, or there is no honest improvement, return both fields as empty strings.",
   "- NEVER invent a sentence the user did not actually say.",
   "",
-  "3) CONVERSATION FLOW",
-  "- Continuously assess the user's CEFR level (A1–C2) from their sentence length, vocabulary range, and grammar.",
-  "- Adjust your vocabulary to be exactly ONE step above the user's detected level (i+1 theory).",
+  "3) TRAINING WHEELS — Sentence suggestions",
+  "- Always provide \"suggestions\": an array of 2–3 SHORT example replies the user could speak next.",
+  "- These are scaffolds for the LEARNER — generate them at the user's CURRENT level (NOT i+1).",
+  "- Each suggestion must be a complete, natural English sentence, under 12 words, sounding like something a real person would say.",
+  "- Make them diverse (different angles / opinions), not 3 paraphrases of the same answer.",
+  "- If the conversation has just started or you asked a yes/no-ish prompt, still give 2–3 distinct natural replies.",
+  "",
+  "4) CONVERSATION FLOW",
+  "- Continuously assess the user's CEFR level (A1–C2) from their sentence length, vocabulary range, and grammar — populate \"userLevel\" with your estimate.",
+  "- Adjust YOUR vocabulary in \"reply\" to be exactly ONE step above the level the client tells you to target (i+1 theory).",
   "- Always end your spoken response with ONE open-ended question. No yes/no questions. Anchor it in something concrete they said.",
   "- Track any interests they mention so future turns feel personal.",
+  "",
+  "FIRST TURN",
+  "- If the user's message is exactly \"[start]\" (or obviously empty), treat it as the conversation opener. Greet them warmly in one short line and ask one simple open-ended question they can answer at their level. No betterWay or suggestion in this case — just reply, userLevel, vietnamese, suggestions, vocabulary, interests.",
   "",
   "BILINGUAL HELP",
   "- Always fill \"vietnamese\" with a faithful Vietnamese translation of the reply (the client decides whether to display it).",
@@ -68,11 +79,12 @@ const SYSTEM_PROMPT = [
   "  \"vietnamese\": \"<Vietnamese translation of reply>\",",
   "  \"suggestion\": \"<'Did you mean ...?' hint when user mixed a Vietnamese word, else empty string>\",",
   "  \"betterWay\": { \"original\": \"<verbatim user sentence>\", \"improved\": \"<native rewrite>\" },",
+  "  \"suggestions\": [\"<short reply user could speak, at user's current level>\"],",
   "  \"vocabulary\": [ { \"term\": \"<i+1 English word/phrase from your reply>\", \"vi\": \"<short Vietnamese gloss>\" } ],",
   "  \"interests\": [\"<any new interest topic detected this turn>\"]",
   "}",
   "",
-  "vocabulary: 0–3 items. betterWay: use empty strings when not applicable. interests: 0–3 items.",
+  "vocabulary: 0–3 items. suggestions: 2–3 items. betterWay: use empty strings when not applicable. interests: 0–3 items.",
 ].join("\n");
 
 // Bổ sung khi user bật Vietnamese-input mode trên client.
@@ -96,11 +108,15 @@ function buildProfileContext(profile: Profile | undefined): string {
   const interests = profile?.interests?.length
     ? profile.interests.join(", ")
     : "(none yet)";
+  const lockedNote = profile?.levelLocked
+    ? `- The user HAS MANUALLY LOCKED their level at ${level}. Keep your "reply" tuned to i+1 of THIS level even if their actual ability seems different. You may still report your own estimate in \"userLevel\".`
+    : "- The level above is an automatic estimate. Update \"userLevel\" if their last messages clearly indicate a different level.";
   return [
     "CURRENT USER PROFILE — use it to calibrate i+1 scaffolding and to personalize the follow-up question:",
     `- Name: ${name}`,
-    `- Last estimated level: ${level}`,
+    `- Target level: ${level}`,
     `- Known interests: ${interests}`,
+    lockedNote,
   ].join("\n");
 }
 
@@ -225,12 +241,20 @@ export async function POST(req: Request) {
           .filter((s: string) => s.length > 0)
       : [];
 
+    const suggestions = Array.isArray(parsed?.suggestions)
+      ? parsed.suggestions
+          .slice(0, 3)
+          .map((s: unknown) => clampString(s))
+          .filter((s: string) => s.length > 0 && s.length <= 120)
+      : [];
+
     return NextResponse.json({
       reply,
       userLevel,
       vietnamese,
       suggestion,
       betterWay,
+      suggestions,
       vocabulary,
       interests,
     });

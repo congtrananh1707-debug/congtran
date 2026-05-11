@@ -29,7 +29,8 @@ type WordBankItem = { term: string; vi: string };
 
 type Profile = {
   name: string;
-  level: Level;
+  level: Level; // mức Kong tự ước lượng theo CEFR
+  manualLevel: Level | null; // user khoá level thủ công; null = để auto
   interests: string[];
   wordBank: WordBankItem[];
   inputLang: InputLang;
@@ -43,13 +44,7 @@ type Message = {
   vietnamese?: string;
   suggestion?: string;
   betterWay?: BetterWay;
-};
-
-type BrainstormResult = {
-  idea: string;
-  topic: string;
-  vocabulary: WordBankItem[];
-  starters: string[];
+  suggestions?: string[]; // gợi ý câu user có thể nói tiếp (training wheels)
 };
 
 declare global {
@@ -70,6 +65,7 @@ const MAX_WORDBANK = 12;
 const DEFAULT_PROFILE: Profile = {
   name: "",
   level: "A2",
+  manualLevel: null,
   interests: [],
   wordBank: [],
   inputLang: "en",
@@ -99,6 +95,7 @@ function loadProfile(): Profile {
     return {
       name: typeof p.name === "string" ? p.name : "",
       level: ALL_LEVELS.includes(p.level) ? p.level : "A2",
+      manualLevel: ALL_LEVELS.includes(p.manualLevel) ? p.manualLevel : null,
       interests: Array.isArray(p.interests)
         ? p.interests.filter((s: any) => typeof s === "string")
         : [],
@@ -144,9 +141,22 @@ function mergeUnique<T>(
   return merged.length > max ? merged.slice(merged.length - max) : merged;
 }
 
+function hasTTS(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    "speechSynthesis" in window &&
+    !!window.speechSynthesis
+  );
+}
+
 function pickBestVoice(): SpeechSynthesisVoice | null {
-  if (typeof window === "undefined") return null;
-  const voices = window.speechSynthesis.getVoices();
+  if (!hasTTS()) return null;
+  let voices: SpeechSynthesisVoice[] = [];
+  try {
+    voices = window.speechSynthesis.getVoices();
+  } catch {
+    return null;
+  }
   if (!voices.length) return null;
   return (
     voices.find((v) => v.name === "Google US English") ||
@@ -181,12 +191,6 @@ export default function Page() {
   // ----- Smart Hint -----
   const [smartHint, setSmartHint] = useState<string>("");
 
-  // ----- Brainstorm (Think Out Loud) -----
-  const [brainstormResult, setBrainstormResult] =
-    useState<BrainstormResult | null>(null);
-  const [isBrainstorming, setIsBrainstorming] = useState(false);
-  const [isBrainstormLoading, setIsBrainstormLoading] = useState(false);
-
   // ----- Refs -----
   const isActiveRef = useRef(false);
   const historyRef = useRef<Message[]>([]);
@@ -195,9 +199,6 @@ export default function Page() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   // Timer flush buffer sau 2.5s im lặng — giữ ở ref để stopConversation có thể clear
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Khi true, buildRecognition ép lang về vi-VN bất kể profile.inputLang.
-  // Dùng cho Brainstorm để user thoải mái nói tiếng Việt.
-  const brainstormModeRef = useRef(false);
   // Cờ chống fetch hint trùng nhau / fetch khi đã có hint đang hiển thị.
   const hintInflightRef = useRef(false);
   const hintDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -233,14 +234,24 @@ export default function Page() {
 
   // ----- Tải voice "Google US English" nếu có (mobile thường nạp async) -----
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    // In-app browser (Zalo, Messenger, FB, …) đôi khi không có speechSynthesis
+    // → bỏ qua thay vì crash toàn app.
+    if (!hasTTS()) return;
     const pickVoice = () => {
       voiceRef.current = pickBestVoice();
     };
     pickVoice();
-    window.speechSynthesis.onvoiceschanged = pickVoice;
+    try {
+      window.speechSynthesis.onvoiceschanged = pickVoice;
+    } catch {
+      /* noop */
+    }
     return () => {
-      window.speechSynthesis.onvoiceschanged = null;
+      try {
+        if (hasTTS()) window.speechSynthesis.onvoiceschanged = null;
+      } catch {
+        /* noop */
+      }
     };
   }, []);
 
@@ -251,13 +262,8 @@ export default function Page() {
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Ctor) return null;
     const r = new Ctor();
-    // Brainstorm luôn dùng vi-VN (cho phép user nói Việt thoải mái khi nêu ý).
-    // Còn lại đọc từ profile để toggle EN/VI có hiệu lực ngay turn kế tiếp.
-    if (brainstormModeRef.current) {
-      r.lang = "vi-VN";
-    } else {
-      r.lang = profileRef.current.inputLang === "vi" ? "vi-VN" : "en-US";
-    }
+    // Đọc từ profile để toggle EN/VI có hiệu lực ngay turn kế tiếp.
+    r.lang = profileRef.current.inputLang === "vi" ? "vi-VN" : "en-US";
     r.continuous = true; // KHÔNG tự dừng khi user pause — ta tự quản qua silence timer
     r.interimResults = true;
     r.maxAlternatives = 1;
@@ -548,7 +554,7 @@ export default function Page() {
   // ----- Robot phát âm: mic ĐÓNG cho tới khi onend hoàn tất -----
   const speak = useCallback((text: string): Promise<void> => {
     return new Promise((resolve) => {
-      if (!text || typeof window === "undefined") {
+      if (!text || !hasTTS()) {
         resolve();
         return;
       }
@@ -636,11 +642,16 @@ export default function Page() {
       vietnamese: string;
       suggestion: string;
       betterWay: BetterWay;
+      suggestions: string[];
     } | null> => {
       const newHistory: Message[] = [
         ...historyRef.current,
         { role: "user", content: userText },
       ];
+
+      // Level dùng để i+1 scaffolding: nếu user chốt thủ công thì ưu tiên dùng nó.
+      const effectiveLevel =
+        profileRef.current.manualLevel ?? profileRef.current.level;
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -649,8 +660,9 @@ export default function Page() {
           messages: newHistory.map(({ role, content }) => ({ role, content })),
           profile: {
             name: profileRef.current.name,
-            level: profileRef.current.level,
+            level: effectiveLevel,
             interests: profileRef.current.interests,
+            levelLocked: profileRef.current.manualLevel !== null,
           },
           inputLang: profileRef.current.inputLang,
         }),
@@ -669,6 +681,7 @@ export default function Page() {
         betterWay?: BetterWay;
         vocabulary?: WordBankItem[];
         interests?: string[];
+        suggestions?: string[];
       };
 
       const reply = (data.reply ?? "").trim();
@@ -679,13 +692,20 @@ export default function Page() {
         bw && typeof bw.original === "string" && typeof bw.improved === "string"
           ? { original: bw.original.trim(), improved: bw.improved.trim() }
           : { original: "", improved: "" };
+      const suggestions: string[] = Array.isArray(data.suggestions)
+        ? data.suggestions
+            .map((s) => (typeof s === "string" ? s.trim() : ""))
+            .filter((s) => s.length > 0)
+            .slice(0, 3)
+        : [];
       const newWords = Array.isArray(data.vocabulary) ? data.vocabulary : [];
       const newInterests = Array.isArray(data.interests) ? data.interests : [];
       const nextLevel: Level = ALL_LEVELS.includes(data.userLevel as Level)
         ? (data.userLevel as Level)
         : profileRef.current.level;
 
-      // Cập nhật profile (level + word bank + interests) → tự lưu localStorage
+      // Cập nhật profile. KHÔNG chạm vào manualLevel — đó là quyết định của user.
+      // level (auto) vẫn được cập nhật để khi user bật lại "Auto" có giá trị mới.
       setProfile((p) => ({
         ...p,
         level: nextLevel,
@@ -703,13 +723,41 @@ export default function Page() {
         ),
       }));
 
-      return { reply, vietnamese, suggestion, betterWay };
+      return { reply, vietnamese, suggestion, betterWay, suggestions };
     },
     []
   );
 
   // ----- Vòng lặp: Nghe → Groq → Nói → Nghe lại -----
   const runLoop = useCallback(async () => {
+    // Auto-greeting: nếu mới Start (history rỗng), Kong chào trước để người mới
+    // không phải đối mặt với khoảng lặng. "[start]" là marker cho backend.
+    if (historyRef.current.length === 0 && isActiveRef.current) {
+      try {
+        setIsThinking(true);
+        const greeting = await askLLM("[start]");
+        setIsThinking(false);
+        if (isActiveRef.current && greeting?.reply) {
+          setHistory((h) => [
+            ...h,
+            {
+              role: "assistant",
+              content: greeting.reply,
+              vietnamese: greeting.vietnamese,
+              suggestion: greeting.suggestion,
+              betterWay: greeting.betterWay,
+              suggestions: greeting.suggestions,
+            },
+          ]);
+          await speak(greeting.reply);
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      } catch {
+        setIsThinking(false);
+        // Greeting fail → bỏ qua, vào loop nghe luôn
+      }
+    }
+
     while (isActiveRef.current) {
       try {
         const userText = await listenOnce();
@@ -732,6 +780,7 @@ export default function Page() {
             vietnamese: result.vietnamese,
             suggestion: result.suggestion,
             betterWay: result.betterWay,
+            suggestions: result.suggestions,
           },
         ]);
         await speak(result.reply);
@@ -755,7 +804,7 @@ export default function Page() {
     // iOS Safari & Android Chrome chặn TTS cho tới khi có ít nhất 1 lần speak()
     // chạy trực tiếp từ tap đầu tiên — nếu không, các speak() sau (nằm sau await)
     // sẽ bị coi là không phải user gesture và câm hoàn toàn.
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    if (hasTTS()) {
       try {
         const unlock = new SpeechSynthesisUtterance(" ");
         unlock.volume = 1;
@@ -785,7 +834,13 @@ export default function Page() {
     } catch {
       /* noop */
     }
-    if (typeof window !== "undefined") window.speechSynthesis.cancel();
+    if (hasTTS()) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        /* noop */
+      }
+    }
     setIsListening(false);
     setIsWaiting(false);
     setIsSpeaking(false);
@@ -805,7 +860,13 @@ export default function Page() {
       } catch {
         /* noop */
       }
-      if (typeof window !== "undefined") window.speechSynthesis.cancel();
+      if (hasTTS()) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          /* noop */
+        }
+      }
     };
   }, []);
 
@@ -836,65 +897,39 @@ export default function Page() {
     }
   }, []);
 
-  // ----- Brainstorm (Think Out Loud) -----
-  // One-shot: user nói 1 idea → /api/brainstorm trả outline → hiện card text-only.
-  // Không phát âm (không TTS). Không đẩy vào history chat.
-  const startBrainstorm = useCallback(async () => {
-    if (isActiveRef.current || isBrainstorming) return;
-    setError(null);
-    setBrainstormResult(null);
-    setIsBrainstorming(true);
-    // Đặt isActive để listenOnce đi qua các nhánh "active" bình thường
-    isActiveRef.current = true;
-    setIsActive(true);
-    brainstormModeRef.current = true;
-    try {
-      const idea = await listenOnce();
-      brainstormModeRef.current = false;
-      isActiveRef.current = false;
-      setIsActive(false);
-      if (!idea.trim()) {
-        setIsBrainstorming(false);
-        return;
-      }
-      setIsBrainstormLoading(true);
-      const res = await fetch("/api/brainstorm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idea }),
-      });
-      setIsBrainstormLoading(false);
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        setError(errBody?.error || `API error ${res.status}`);
-        setIsBrainstorming(false);
-        return;
-      }
-      const data = (await res.json()) as {
-        topic?: string;
-        vocabulary?: WordBankItem[];
-        starters?: string[];
-      };
-      setBrainstormResult({
-        idea,
-        topic: (data.topic ?? "").trim(),
-        vocabulary: Array.isArray(data.vocabulary) ? data.vocabulary : [],
-        starters: Array.isArray(data.starters) ? data.starters : [],
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Lỗi brainstorm");
-    } finally {
-      brainstormModeRef.current = false;
-      isActiveRef.current = false;
-      setIsActive(false);
-      setIsBrainstorming(false);
-      setIsBrainstormLoading(false);
-    }
-  }, [listenOnce, isBrainstorming]);
-
-  const dismissBrainstorm = useCallback(() => {
-    setBrainstormResult(null);
+  // ----- Manual level picker -----
+  const setManualLevel = useCallback((lvl: Level | null) => {
+    setProfile((p) => ({ ...p, manualLevel: lvl }));
   }, []);
+
+  // ----- Phát lại an toàn cho 1 đoạn TTS bất kỳ (Replay / Suggestion chip) -----
+  // Pause runLoop nếu đang chạy, speak, rồi resume — tránh đụng audio session
+  // và tránh recognition tự restart giữa lúc loa đang phát.
+  const safeReplay = useCallback(
+    async (text: string) => {
+      if (!text.trim() || !hasTTS()) return;
+      const wasActive = isActiveRef.current;
+      if (wasActive) {
+        isActiveRef.current = false;
+        setIsActive(false);
+        try {
+          recognitionRef.current?.abort?.();
+        } catch {
+          /* noop */
+        }
+        // Cho listenOnce.onend kịp resolve và runLoop kịp break
+        await new Promise((r) => setTimeout(r, 80));
+      }
+      await speak(text);
+      if (wasActive) {
+        isActiveRef.current = true;
+        setIsActive(true);
+        void runLoop();
+      }
+    },
+    [speak, runLoop]
+  );
+
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black text-slate-100">
@@ -913,7 +948,12 @@ export default function Page() {
             </div>
             <div className="flex items-center gap-2">
               <LangToggle lang={profile.inputLang} onToggle={toggleInputLang} />
-              <LevelBadge level={profile.level} />
+              <LevelPicker
+                effectiveLevel={profile.manualLevel ?? profile.level}
+                manualLevel={profile.manualLevel}
+                autoLevel={profile.level}
+                onChange={setManualLevel}
+              />
             </div>
           </div>
 
@@ -922,40 +962,30 @@ export default function Page() {
 
           {/* Caption */}
           <div className="h-6 text-sm">
-            {isBrainstorming ? (
-              <span className="italic text-violet-300/90">
-                {isBrainstormLoading
-                  ? "Đang lập dàn ý…"
-                  : "Brainstorm — nói ý của bạn (Việt/Anh đều được)…"}
+            {orbState === "idle" && (
+              <span className="text-slate-300">
+                Nhấn Start để bắt đầu hội thoại
               </span>
-            ) : (
-              <>
-                {orbState === "idle" && (
-                  <span className="text-slate-300">
-                    Nhấn Start để bắt đầu hội thoại
-                  </span>
-                )}
-                {orbState === "listening" && (
-                  <span className="text-slate-300">
-                    {interim
-                      ? `“${interim}”`
-                      : profile.inputLang === "vi"
-                        ? "Đang nghe (tiếng Việt)…"
-                        : "Đang nghe…"}
-                  </span>
-                )}
-                {orbState === "waiting" && (
-                  <span className="italic text-amber-300/80">
-                    Kong is waiting for you...
-                  </span>
-                )}
-                {orbState === "thinking" && (
-                  <span className="text-slate-300">Đang suy nghĩ…</span>
-                )}
-                {orbState === "speaking" && (
-                  <span className="text-slate-300">Kong đang nói…</span>
-                )}
-              </>
+            )}
+            {orbState === "listening" && (
+              <span className="text-slate-300">
+                {interim
+                  ? `“${interim}”`
+                  : profile.inputLang === "vi"
+                    ? "Đang nghe (tiếng Việt)…"
+                    : "Đang nghe…"}
+              </span>
+            )}
+            {orbState === "waiting" && (
+              <span className="italic text-amber-300/80">
+                Kong is waiting for you...
+              </span>
+            )}
+            {orbState === "thinking" && (
+              <span className="text-slate-300">Đang suy nghĩ…</span>
+            )}
+            {orbState === "speaking" && (
+              <span className="text-slate-300">Kong đang nói…</span>
             )}
           </div>
 
@@ -965,23 +995,12 @@ export default function Page() {
           {/* Controls */}
           <div className="flex flex-wrap items-center justify-center gap-3">
             {!isActive ? (
-              <>
-                <button
-                  onClick={startConversation}
-                  disabled={isBrainstorming}
-                  className="rounded-full bg-emerald-500 px-7 py-2.5 font-medium text-black shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Start
-                </button>
-                <button
-                  onClick={startBrainstorm}
-                  disabled={isBrainstorming}
-                  title="Nói đại ý của bạn (Việt/Anh) — Kong sẽ trả về dàn ý không phát thành tiếng"
-                  className="rounded-full border border-violet-400/40 bg-violet-500/15 px-5 py-2.5 text-sm font-medium text-violet-100 transition hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  💡 Brainstorm
-                </button>
-              </>
+              <button
+                onClick={startConversation}
+                className="rounded-full bg-emerald-500 px-7 py-2.5 font-medium text-black shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+              >
+                Start
+              </button>
             ) : (
               <button
                 onClick={stopConversation}
@@ -998,23 +1017,14 @@ export default function Page() {
             </p>
           )}
 
-          {/* Brainstorm card — outline text-only, không phát âm */}
-          <AnimatePresence>
-            {brainstormResult && (
-              <BrainstormCard
-                result={brainstormResult}
-                onDismiss={dismissBrainstorm}
-              />
-            )}
-          </AnimatePresence>
-
           {/* Chat history */}
           <div className="w-full">
             <ChatHistory
               history={history}
               isSpeaking={isSpeaking}
-              level={profile.level}
+              level={profile.manualLevel ?? profile.level}
               chatEndRef={chatEndRef}
+              onReplay={safeReplay}
             />
           </div>
         </main>
@@ -1040,6 +1050,55 @@ function LevelBadge({ level }: { level: Level }) {
     >
       {level}
     </div>
+  );
+}
+
+// ============================================================
+// LEVEL PICKER — user chốt mức CEFR thủ công, hoặc để Auto cho Kong tự đoán
+// Dùng native <select> để mobile-friendly (hiện picker hệ thống).
+// ============================================================
+
+function LevelPicker({
+  effectiveLevel,
+  manualLevel,
+  autoLevel,
+  onChange,
+}: {
+  effectiveLevel: Level;
+  manualLevel: Level | null;
+  autoLevel: Level;
+  onChange: (lvl: Level | null) => void;
+}) {
+  return (
+    <label
+      title={
+        manualLevel
+          ? `Bạn đang khoá ở ${manualLevel}. Chọn Auto để Kong tự đoán.`
+          : `Kong tự đoán: ${autoLevel}. Bấm để chốt mức cố định.`
+      }
+      className={`relative inline-flex cursor-pointer select-none items-center gap-1 rounded-full border px-2 py-1 text-xs font-bold tracking-widest transition ${LEVEL_BADGE[effectiveLevel]}`}
+    >
+      <span>{effectiveLevel}</span>
+      {!manualLevel && (
+        <span className="text-[9px] font-medium opacity-60">·AUTO</span>
+      )}
+      <select
+        value={manualLevel ?? "AUTO"}
+        onChange={(e) => {
+          const v = e.target.value;
+          onChange(v === "AUTO" ? null : (v as Level));
+        }}
+        className="absolute inset-0 cursor-pointer opacity-0"
+        aria-label="Chọn mức CEFR"
+      >
+        <option value="AUTO">Auto (Kong tự đoán)</option>
+        {ALL_LEVELS.map((l) => (
+          <option key={l} value={l}>
+            {l}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -1112,92 +1171,6 @@ function SmartHintBubble({
   );
 }
 
-// ============================================================
-// BRAINSTORM CARD — outline ngắn (Topic / Vocabulary / Starters)
-// Text-only, không TTS. User dùng để chuẩn bị trước khi nói.
-// ============================================================
-
-function BrainstormCard({
-  result,
-  onDismiss,
-}: {
-  result: BrainstormResult;
-  onDismiss: () => void;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 8 }}
-      transition={{ duration: 0.25 }}
-      className="w-full max-w-2xl rounded-2xl border border-violet-400/30 bg-violet-500/10 p-4 backdrop-blur-sm"
-    >
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-violet-300/90">
-            💡 Brainstorm
-          </div>
-          {result.topic && (
-            <div className="mt-0.5 text-sm font-medium text-violet-50">
-              {result.topic}
-            </div>
-          )}
-          {result.idea && (
-            <div className="mt-0.5 text-[11px] italic text-violet-200/60">
-              Bạn nói: “{result.idea}”
-            </div>
-          )}
-        </div>
-        <button
-          onClick={onDismiss}
-          aria-label="Đóng dàn ý"
-          className="rounded-full px-2 py-0.5 text-violet-200/70 transition hover:bg-violet-400/20 hover:text-violet-50"
-        >
-          ×
-        </button>
-      </div>
-
-      {result.vocabulary.length > 0 && (
-        <div className="mt-3">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-200/80">
-            Key Vocabulary
-          </div>
-          <ul className="flex flex-col gap-1">
-            {result.vocabulary.map((v, i) => (
-              <li
-                key={`${v.term}-${i}`}
-                className="rounded-md bg-black/20 px-2.5 py-1.5 text-xs"
-              >
-                <span className="font-medium text-violet-100">{v.term}</span>
-                {v.vi && (
-                  <span className="ml-2 italic text-slate-400">— {v.vi}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {result.starters.length > 0 && (
-        <div className="mt-3">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-200/80">
-            Sentence Starters
-          </div>
-          <ul className="flex flex-col gap-1">
-            {result.starters.map((s, i) => (
-              <li
-                key={`starter-${i}`}
-                className="rounded-md border border-violet-400/20 bg-black/20 px-2.5 py-1.5 text-xs italic text-violet-50"
-              >
-                “{s}”
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </motion.div>
-  );
-}
 
 // ============================================================
 // ROBOT FACE — đầu robot trắng + tai mèo + mắt LED + miệng động
@@ -1469,11 +1442,13 @@ function ChatHistory({
   isSpeaking,
   level,
   chatEndRef,
+  onReplay,
 }: {
   history: Message[];
   isSpeaking: boolean;
   level: Level;
   chatEndRef: React.RefObject<HTMLDivElement>;
+  onReplay: (text: string) => void;
 }) {
   return (
     <div
@@ -1502,7 +1477,13 @@ function ChatHistory({
                   transition={{ duration: 0.3 }}
                   className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                 >
-                  <Bubble m={m} isUser={isUser} level={level} />
+                  <Bubble
+                    m={m}
+                    isUser={isUser}
+                    level={level}
+                    isLast={isLast}
+                    onReplay={onReplay}
+                  />
                 </motion.div>
               );
             })}
@@ -1518,15 +1499,22 @@ function Bubble({
   m,
   isUser,
   level,
+  isLast,
+  onReplay,
 }: {
   m: Message;
   isUser: boolean;
   level: Level;
+  isLast: boolean;
+  onReplay: (text: string) => void;
 }) {
   const [showVi, setShowVi] = useState(false);
   const beginner = isBeginner(level);
   const showViAuto = !isUser && beginner && !!m.vietnamese;
   const canTranslate = !isUser && !beginner && !!m.vietnamese;
+  // Chips chỉ hiện cho TIN NHẮN MỚI NHẤT của Kong — gợi ý câu user nói tiếp.
+  const showSuggestions =
+    !isUser && isLast && !!m.suggestions && m.suggestions.length > 0;
 
   return (
     <div
@@ -1537,11 +1525,21 @@ function Bubble({
       }`}
     >
       <div
-        className={`mb-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+        className={`mb-0.5 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider ${
           isUser ? "text-sky-300" : "text-emerald-300"
         }`}
       >
-        {isUser ? "You" : "Kong"}
+        <span>{isUser ? "You" : "Kong"}</span>
+        {!isUser && (
+          <button
+            onClick={() => onReplay(m.content)}
+            title="Nghe lại câu này"
+            aria-label="Nghe lại câu này"
+            className="-my-1 rounded-full px-1.5 py-0.5 text-emerald-200/70 transition hover:bg-emerald-400/15 hover:text-emerald-100"
+          >
+            🔊
+          </button>
+        )}
       </div>
       <div className="text-slate-50">{m.content}</div>
 
@@ -1595,6 +1593,31 @@ function Bubble({
           </div>
           <div className="mt-0.5 text-fuchsia-100">
             → {m.betterWay.improved}
+          </div>
+        </div>
+      )}
+
+      {/* Training wheels: gợi ý 2-3 câu user có thể nói tiếp.
+          Bấm chip → Kong đọc lại cho nghe → user lặp lại để nói. */}
+      {showSuggestions && (
+        <div className="mt-2.5 border-t border-white/5 pt-2">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-200/80">
+            💬 Try saying
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {m.suggestions!.map((s, i) => (
+              <button
+                key={`sg-${i}`}
+                onClick={() => onReplay(s)}
+                title="Nghe Kong đọc câu này — bạn lặp lại"
+                className="group flex items-center gap-1.5 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] text-cyan-50 transition hover:bg-cyan-500/20"
+              >
+                <span className="text-cyan-300/80 group-hover:text-cyan-200">
+                  🔊
+                </span>
+                <span>{s}</span>
+              </button>
+            ))}
           </div>
         </div>
       )}
