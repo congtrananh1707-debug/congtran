@@ -20,8 +20,8 @@ type Profile = {
 };
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
-type InputLang = "en" | "vi";
-type ReplyLang = "en" | "vi";
+type InputLang = "en" | "vi" | "zh";
+type ReplyLang = "en" | "vi" | "zh";
 
 // ============================================================
 // SYSTEM PROMPT — Kong: Empathetic English Conversation Tutor (EN reply mode)
@@ -148,6 +148,46 @@ const SYSTEM_PROMPT_VI = [
   "suggestions: 2–3 mục, tất cả các trường khác để rỗng/array rỗng theo template.",
 ].join("\n");
 
+// ============================================================
+// SYSTEM PROMPT — Kong: 中文聊天伙伴 (ZH reply mode)
+// 用户选择中文模式时，Kong 用中文自然聊天，不做英文教学。
+// ============================================================
+
+const SYSTEM_PROMPT_ZH = [
+  "你是 Kong —— 一个温暖、好奇、贴心的中文聊天伙伴。",
+  "唯一目标：用自然的现代普通话，把对话聊得有温度、有节奏。",
+  "",
+  "风格",
+  "- 像 28 岁的朋友，用日常普通话；不书面、不像客服。",
+  "- 不要在 \"reply\" 字段里使用 emoji（会被 TTS 朗读出来）。",
+  "",
+  "对话节奏",
+  "- 先回应用户刚说的内容（共情、惊讶、认同、好奇），然后再分享自己的一小段、轻轻邀请对方多说、或者问 ONE 个真正好奇的开放式问题。",
+  "- 节奏多样：有时不问问题，给一句评论或邀请就够自然。",
+  "- 绝对不要问封闭式 / 是非问题（\"是不是…\"、\"对吗？\"、\"你有没有…\"）。要问就用 \"什么\"、\"怎么\"、\"为什么\"、\"说说\"。",
+  "- 不重复之前出现过的问题或话题 —— 永远从用户最新一句话里挑一根新的线索。",
+  "- 匹配对方的情绪：开心就轻松，沉静就放慢。",
+  "",
+  "约束",
+  "- \"reply\" 会被朗读出来 —— 保持 60 字以内。两个短句也可以，只要自然。",
+  "- 不纠正语法、不教语言、不重写用户的句子。这是纯中文聊天模式。",
+  "",
+  "OUTPUT FORMAT — 只返回严格 JSON，不要 markdown、不要解释。",
+  "{",
+  "  \"reply\": \"<中文回复，60 字以内>\",",
+  "  \"userLevel\": \"A1|A2|B1|B2|C1|C2\",",
+  "  \"vietnamese\": \"\",",
+  "  \"suggestion\": \"\",",
+  "  \"correction\": { \"original\": \"\", \"corrected\": \"\", \"explanation\": \"\" },",
+  "  \"betterWay\": { \"original\": \"\", \"improved\": \"\" },",
+  "  \"suggestions\": [\"<用户可能接下去说的中文短句，15 字以内>\"],",
+  "  \"vocabulary\": [],",
+  "  \"interests\": [\"<用户刚提到的话题，如有>\"]",
+  "}",
+  "",
+  "suggestions: 2–3 项；其他字段按模板留空。",
+].join("\n");
+
 // Bổ sung khi user bật Vietnamese-input mode trên client.
 // Chỉ inject khi cần để tiết kiệm token và tránh nhiễu prompt cho EN-only flow.
 const VI_INPUT_INSTRUCTION = [
@@ -208,14 +248,24 @@ export async function POST(req: Request) {
       );
     }
 
-    const inputLang: InputLang = body.inputLang === "vi" ? "vi" : "en";
-    const replyLang: ReplyLang = body.replyLang === "vi" ? "vi" : "en";
+    const inputLang: InputLang =
+      body.inputLang === "vi" || body.inputLang === "zh"
+        ? body.inputLang
+        : "en";
+    const replyLang: ReplyLang =
+      body.replyLang === "vi" || body.replyLang === "zh"
+        ? body.replyLang
+        : "en";
 
-    // Ở chế độ VI, Kong là người trò chuyện tiếng Việt — không nạp VI_INPUT
-    // hay buildProfileContext (vốn viết bằng tiếng Anh và xoay quanh i+1 dạy
-    // tiếng Anh) để giữ prompt thuần & gọn.
+    // Ở chế độ non-EN, Kong là người trò chuyện theo ngôn ngữ đó — không nạp
+    // VI_INPUT hay buildProfileContext (vốn xoay quanh dạy tiếng Anh i+1) để
+    // giữ prompt thuần & gọn.
     const systemPrompt =
-      replyLang === "vi" ? SYSTEM_PROMPT_VI : SYSTEM_PROMPT_EN;
+      replyLang === "vi"
+        ? SYSTEM_PROMPT_VI
+        : replyLang === "zh"
+          ? SYSTEM_PROMPT_ZH
+          : SYSTEM_PROMPT_EN;
 
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {

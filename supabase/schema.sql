@@ -98,10 +98,42 @@ create policy messages_self_delete on public.messages
 -- MIGRATIONS — safe to re-run, additive only.
 -- ============================================================
 
--- Reply-language picker: 'en' (English tutoring) or 'vi' (Vietnamese chat).
+-- Reply-language picker: 'en' (English tutoring), 'vi' (Vietnamese chat),
+-- 'zh' (Chinese chat / tutoring).
 alter table public.profiles
   add column if not exists reply_lang text not null default 'en'
-  check (reply_lang in ('en', 'vi'));
+  check (reply_lang in ('en', 'vi', 'zh'));
+
+-- ZH support added later — relax both lang constraints (drop+add to avoid
+-- ALTER CONSTRAINT in older Postgres). Safe to re-run.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.check_constraints
+    where constraint_name = 'profiles_reply_lang_check'
+  ) then
+    alter table public.profiles drop constraint profiles_reply_lang_check;
+  end if;
+  alter table public.profiles
+    add constraint profiles_reply_lang_check
+    check (reply_lang in ('en', 'vi', 'zh'));
+
+  if exists (
+    select 1 from information_schema.check_constraints
+    where constraint_name = 'profiles_input_lang_check'
+  ) then
+    alter table public.profiles drop constraint profiles_input_lang_check;
+  end if;
+  alter table public.profiles
+    add constraint profiles_input_lang_check
+    check (input_lang in ('en', 'vi', 'zh'));
+end $$;
+
+-- Interaction mode: 'voice' (hands-free Start/listen loop) or 'text'
+-- (typed input). Default voice for backwards compat.
+alter table public.profiles
+  add column if not exists interaction_mode text not null default 'voice'
+  check (interaction_mode in ('voice', 'text'));
 
 -- Per-message correction analysis (replaces the standalone Smart Hint).
 -- Shape: { original, corrected, explanation }. Empty strings = no fix needed.

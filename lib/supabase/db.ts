@@ -6,8 +6,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const ALL_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
 export type Level = (typeof ALL_LEVELS)[number];
-export type InputLang = "en" | "vi";
-export type ReplyLang = "en" | "vi";
+export type InputLang = "en" | "vi" | "zh";
+export type ReplyLang = "en" | "vi" | "zh";
+export type InteractionMode = "voice" | "text";
+
+const INPUT_LANGS: readonly InputLang[] = ["en", "vi", "zh"];
+const REPLY_LANGS: readonly ReplyLang[] = ["en", "vi", "zh"];
 
 export type WordBankItem = { term: string; vi: string };
 export type BetterWay = { original: string; improved: string };
@@ -27,6 +31,7 @@ export type StoredProfile = {
   interests: string[];
   inputLang: InputLang;
   replyLang: ReplyLang;
+  interactionMode: InteractionMode;
   wordBank: WordBankItem[];
 };
 
@@ -74,7 +79,7 @@ export async function loadProfile(
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "user_id, username, display_name, role, level, manual_level, interests, input_lang, reply_lang, word_bank"
+      "user_id, username, display_name, role, level, manual_level, interests, input_lang, reply_lang, interaction_mode, word_bank"
     )
     .eq("user_id", user.id)
     .single();
@@ -88,8 +93,9 @@ export async function loadProfile(
     level: isLevel(data.level) ? data.level : "A2",
     manualLevel: isLevel(data.manual_level) ? data.manual_level : null,
     interests: asStringArray(data.interests),
-    inputLang: data.input_lang === "vi" ? "vi" : "en",
-    replyLang: data.reply_lang === "vi" ? "vi" : "en",
+    inputLang: INPUT_LANGS.includes(data.input_lang) ? data.input_lang : "en",
+    replyLang: REPLY_LANGS.includes(data.reply_lang) ? data.reply_lang : "en",
+    interactionMode: data.interaction_mode === "text" ? "text" : "voice",
     wordBank: asWordBank(data.word_bank),
   };
 }
@@ -107,6 +113,7 @@ export async function saveProfile(
       | "interests"
       | "inputLang"
       | "replyLang"
+      | "interactionMode"
       | "wordBank"
     >
   >
@@ -118,6 +125,8 @@ export async function saveProfile(
   if (patch.interests !== undefined) row.interests = patch.interests;
   if (patch.inputLang !== undefined) row.input_lang = patch.inputLang;
   if (patch.replyLang !== undefined) row.reply_lang = patch.replyLang;
+  if (patch.interactionMode !== undefined)
+    row.interaction_mode = patch.interactionMode;
   if (patch.wordBank !== undefined) row.word_bank = patch.wordBank;
   if (Object.keys(row).length === 0) return;
 

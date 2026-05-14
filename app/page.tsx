@@ -22,13 +22,34 @@ import {
 
 type Level = "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
 type OrbState = "idle" | "listening" | "waiting" | "thinking" | "speaking";
-type InputLang = "en" | "vi";
-type ReplyLang = "en" | "vi";
+type InputLang = "en" | "vi" | "zh";
+type ReplyLang = "en" | "vi" | "zh";
+type InteractionMode = "voice" | "text";
+
+const LANG_LABEL: Record<InputLang, string> = {
+  en: "English",
+  vi: "Tiếng Việt",
+  zh: "中文",
+};
+const LANG_FLAG: Record<InputLang, string> = {
+  en: "🇺🇸",
+  vi: "🇻🇳",
+  zh: "🇨🇳",
+};
+const LANG_LOCALE: Record<InputLang, string> = {
+  en: "en-US",
+  vi: "vi-VN",
+  zh: "zh-CN",
+};
 
 // Cấu hình cho Silence Timeout (debounce gửi câu hỏi tới Groq)
-const SILENCE_MS = 2500; // 2.5s im lặng → gửi buffer
-const GRACE_MS = 600; // 0.6s im lặng → bật indicator "đang chờ"
-const IDLE_TIMEOUT_MS = 30000; // 30s tuyệt không nghe thấy gì → tự dừng hội thoại
+// Timing đã tune cho cảm giác trò chuyện tự nhiên:
+// - 1200ms im lặng = đủ để Kong "biết" user đã nói xong, không cướp lời giữa câu.
+// - 300ms grace = hiện indicator "đang chờ" sớm để user thấy Kong đã chú ý.
+// - 25s idle = đủ thoải mái nghĩ, không dài đến mức quên đang trong hội thoại.
+const SILENCE_MS = 1200;
+const GRACE_MS = 300;
+const IDLE_TIMEOUT_MS = 25000;
 
 type WordBankItem = { term: string; vi: string };
 
@@ -39,7 +60,8 @@ type Profile = {
   interests: string[];
   wordBank: WordBankItem[];
   inputLang: InputLang;
-  replyLang: ReplyLang; // ngôn ngữ Kong trả lời (en = dạy tiếng Anh, vi = chat tiếng Việt)
+  replyLang: ReplyLang; // ngôn ngữ Kong trả lời (en/vi/zh)
+  interactionMode: InteractionMode; // voice = hands-free, text = gõ
 };
 
 type BetterWay = { original: string; improved: string };
@@ -81,6 +103,7 @@ const DEFAULT_PROFILE: Profile = {
   wordBank: [],
   inputLang: "en",
   replyLang: "en",
+  interactionMode: "voice",
 };
 
 const LEVEL_BADGE: Record<Level, string> = {
@@ -138,6 +161,17 @@ function pickBestVoice(
       ) ||
       voices.find((v) => v.lang === "vi-VN") ||
       voices.find((v) => v.lang.toLowerCase().startsWith("vi")) ||
+      voices[0] ||
+      null
+    );
+  }
+  if (lang === "zh") {
+    return (
+      voices.find(
+        (v) => v.lang === "zh-CN" && v.name.toLowerCase().includes("google")
+      ) ||
+      voices.find((v) => v.lang === "zh-CN") ||
+      voices.find((v) => v.lang.toLowerCase().startsWith("zh")) ||
       voices[0] ||
       null
     );
@@ -214,6 +248,7 @@ export default function Page() {
           wordBank: stored.wordBank,
           inputLang: stored.inputLang,
           replyLang: stored.replyLang,
+          interactionMode: stored.interactionMode,
         };
         setProfile(next);
         profileRef.current = next;
@@ -257,6 +292,7 @@ export default function Page() {
         interests: profile.interests,
         inputLang: profile.inputLang,
         replyLang: profile.replyLang,
+        interactionMode: profile.interactionMode,
         wordBank: profile.wordBank,
       });
     }, 600);
@@ -310,7 +346,7 @@ export default function Page() {
     if (!Ctor) return null;
     const r = new Ctor();
     // Đọc từ profile để toggle EN/VI có hiệu lực ngay turn kế tiếp.
-    r.lang = profileRef.current.inputLang === "vi" ? "vi-VN" : "en-US";
+    r.lang = LANG_LOCALE[profileRef.current.inputLang];
     r.continuous = true; // KHÔNG tự dừng khi user pause — ta tự quản qua silence timer
     r.interimResults = true;
     r.maxAlternatives = 1;
@@ -550,7 +586,7 @@ export default function Page() {
       const u = new SpeechSynthesisUtterance(text);
       // Chỉ gán voice nếu thực sự có. iOS Safari đôi khi câm khi voice = null.
       if (voice) u.voice = voice;
-      u.lang = replyLang === "vi" ? "vi-VN" : "en-US";
+      u.lang = LANG_LOCALE[replyLang];
       u.rate = 1;
       u.pitch = 1;
       u.volume = 1;
@@ -811,6 +847,45 @@ export default function Page() {
     }
   }, [listenOnce, askLLM, speak, persistMessage]);
 
+  // ----- Text mode: gửi 1 lượt rồi đợi user gõ tiếp -----
+  // Khác với runLoop (voice) ở chỗ không có vòng lặp nghe — mỗi lần user nhấn
+  // Send là một turn độc lập. TTS vẫn chạy để user luyện nghe.
+  const sendTextMessage = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      setError(null);
+
+      const userMsg: Message = { role: "user", content: trimmed };
+      setHistory((h) => [...h, userMsg]);
+      persistMessage(userMsg);
+
+      setIsThinking(true);
+      try {
+        const result = await askLLM(trimmed);
+        setIsThinking(false);
+        if (!result || !result.reply) return;
+
+        const replyMsg: Message = {
+          role: "assistant",
+          content: result.reply,
+          vietnamese: result.vietnamese,
+          suggestion: result.suggestion,
+          correction: result.correction,
+          betterWay: result.betterWay,
+          suggestions: result.suggestions,
+        };
+        setHistory((h) => [...h, replyMsg]);
+        persistMessage(replyMsg);
+        await speak(result.reply);
+      } catch (err) {
+        setIsThinking(false);
+        setError(err instanceof Error ? err.message : "Lỗi không xác định");
+      }
+    },
+    [askLLM, speak, persistMessage]
+  );
+
   const startConversation = useCallback(() => {
     setError(null);
 
@@ -900,10 +975,10 @@ export default function Page() {
     setProfile((p) => ({ ...p, wordBank: [], interests: [] }));
   }, []);
 
-  // ----- Toggle ngôn ngữ mic (EN ↔ VI) -----
+  // ----- Set ngôn ngữ mic (en / vi / zh) -----
   // Nếu đang trong hội thoại, abort recognition để turn kế tiếp tạo mới với lang đúng.
-  const toggleInputLang = useCallback(() => {
-    setProfile((p) => ({ ...p, inputLang: p.inputLang === "vi" ? "en" : "vi" }));
+  const setInputLangValue = useCallback((lang: InputLang) => {
+    setProfile((p) => ({ ...p, inputLang: lang }));
     try {
       recognitionRef.current?.abort?.();
     } catch {
@@ -911,12 +986,39 @@ export default function Page() {
     }
   }, []);
 
-  // ----- Toggle ngôn ngữ Kong trả lời (EN dạy tiếng Anh ↔ VI trò chuyện) -----
-  const toggleReplyLang = useCallback(() => {
+  // ----- Set ngôn ngữ Kong trả lời (en / vi / zh) -----
+  const setReplyLangValue = useCallback((lang: ReplyLang) => {
+    setProfile((p) => ({ ...p, replyLang: lang }));
+  }, []);
+
+  // ----- Toggle mode: voice ↔ text -----
+  // Nếu đang trong voice loop mà user bật text → stop conversation để mic im.
+  const toggleInteractionMode = useCallback(() => {
     setProfile((p) => ({
       ...p,
-      replyLang: p.replyLang === "vi" ? "en" : "vi",
+      interactionMode: p.interactionMode === "voice" ? "text" : "voice",
     }));
+    // Khi chuyển sang text, đảm bảo voice loop dừng hẳn.
+    if (isActiveRef.current) {
+      isActiveRef.current = false;
+      setIsActive(false);
+      try {
+        recognitionRef.current?.abort?.();
+      } catch {
+        /* noop */
+      }
+      if (hasTTS()) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          /* noop */
+        }
+      }
+      setIsListening(false);
+      setIsWaiting(false);
+      setIsSpeaking(false);
+      setIsThinking(false);
+    }
   }, []);
 
   // ----- Manual level picker -----
@@ -975,33 +1077,111 @@ export default function Page() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <ReplyLangPicker
-                lang={profile.replyLang}
-                onToggle={toggleReplyLang}
+              <ModeToggle
+                mode={profile.interactionMode}
+                onToggle={toggleInteractionMode}
               />
-              <LangToggle lang={profile.inputLang} onToggle={toggleInputLang} />
-              <LevelPicker
-                effectiveLevel={profile.manualLevel ?? profile.level}
-                manualLevel={profile.manualLevel}
-                autoLevel={profile.level}
-                onChange={setManualLevel}
-              />
-              {sessionUser?.role === "admin" && (
-                <a
-                  href="/admin"
-                  className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 transition hover:border-cyan-400/60 hover:text-cyan-300"
-                >
-                  Admin
-                </a>
-              )}
-              <form action="/api/auth/signout" method="post">
-                <button
-                  type="submit"
-                  className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-rose-400/60 hover:text-rose-300"
-                >
-                  Đăng xuất
-                </button>
-              </form>
+
+              {/* Settings dropdown — gom Kong lang, Mic lang, Level */}
+              <Dropdown
+                trigger={(open) => (
+                  <span
+                    className={`flex select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wider transition ${
+                      open
+                        ? "border-cyan-400/60 bg-cyan-500/15 text-cyan-100"
+                        : "border-slate-700 bg-slate-800/50 text-slate-300 hover:border-slate-600"
+                    }`}
+                  >
+                    <span className="text-base leading-none">⚙️</span>
+                    <span>CÀI ĐẶT</span>
+                  </span>
+                )}
+              >
+                {() => (
+                  <div className="w-64 space-y-3">
+                    <div>
+                      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        Kong trả lời bằng
+                      </div>
+                      <LangSegmented
+                        value={profile.replyLang}
+                        onChange={setReplyLangValue}
+                        options={["en", "vi", "zh"] as const}
+                      />
+                    </div>
+
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        <span>Mic nghe</span>
+                        {profile.interactionMode === "text" && (
+                          <span className="text-[9px] text-slate-500 normal-case">
+                            (không dùng ở Text mode)
+                          </span>
+                        )}
+                      </div>
+                      <LangSegmented
+                        value={profile.inputLang}
+                        onChange={setInputLangValue}
+                        options={["en", "vi", "zh"] as const}
+                      />
+                    </div>
+
+                    <div>
+                      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        Mức CEFR
+                      </div>
+                      <LevelPicker
+                        effectiveLevel={profile.manualLevel ?? profile.level}
+                        manualLevel={profile.manualLevel}
+                        autoLevel={profile.level}
+                        onChange={setManualLevel}
+                      />
+                    </div>
+                  </div>
+                )}
+              </Dropdown>
+
+              {/* User dropdown — username + Admin link + Đăng xuất */}
+              <Dropdown
+                trigger={(open) => (
+                  <span
+                    className={`flex select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wider transition ${
+                      open
+                        ? "border-cyan-400/60 bg-cyan-500/15 text-cyan-100"
+                        : "border-slate-700 bg-slate-800/50 text-slate-200 hover:border-slate-600"
+                    }`}
+                  >
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-700 text-[10px] uppercase text-slate-200">
+                      {sessionUser?.username?.[0] ?? "?"}
+                    </span>
+                    <span className="normal-case">
+                      @{sessionUser?.username ?? "…"}
+                    </span>
+                  </span>
+                )}
+              >
+                {(close) => (
+                  <div className="w-48 space-y-1">
+                    {sessionUser?.role === "admin" && (
+                      <a
+                        href="/admin"
+                        onClick={close}
+                        className="block rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800"
+                      >
+                        🛡️ Quản trị
+                      </a>
+                    )}
+                    <form action="/api/auth/signout" method="post">
+                      <button
+                        type="submit"
+                        className="block w-full rounded-md px-3 py-2 text-left text-sm text-rose-200 transition hover:bg-rose-500/10"
+                      >
+                        🚪 Đăng xuất
+                      </button>
+                    </form>
+                  </div>
+                )}
+              </Dropdown>
             </div>
           </div>
 
@@ -1010,18 +1190,21 @@ export default function Page() {
 
           {/* Caption */}
           <div className="h-6 text-sm">
-            {orbState === "idle" && (
+            {orbState === "idle" && profile.interactionMode === "voice" && (
               <span className="text-slate-300">
                 Nhấn Start để bắt đầu hội thoại
+              </span>
+            )}
+            {orbState === "idle" && profile.interactionMode === "text" && (
+              <span className="text-slate-300">
+                Gõ tin nhắn để trò chuyện với Kong
               </span>
             )}
             {orbState === "listening" && (
               <span className="text-slate-300">
                 {interim
                   ? `“${interim}”`
-                  : profile.inputLang === "vi"
-                    ? "Đang nghe (tiếng Việt)…"
-                    : "Đang nghe…"}
+                  : `Đang nghe (${LANG_LABEL[profile.inputLang]})…`}
               </span>
             )}
             {orbState === "waiting" && (
@@ -1038,23 +1221,31 @@ export default function Page() {
           </div>
 
           {/* Controls */}
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            {!isActive ? (
-              <button
-                onClick={startConversation}
-                className="rounded-full bg-emerald-500 px-7 py-2.5 font-medium text-black shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
-              >
-                Start
-              </button>
-            ) : (
-              <button
-                onClick={stopConversation}
-                className="rounded-full bg-rose-500 px-7 py-2.5 font-medium text-black shadow-lg shadow-rose-500/30 transition hover:bg-rose-400"
-              >
-                Stop
-              </button>
-            )}
-          </div>
+          {profile.interactionMode === "voice" ? (
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              {!isActive ? (
+                <button
+                  onClick={startConversation}
+                  className="rounded-full bg-emerald-500 px-7 py-2.5 font-medium text-black shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+                >
+                  Start
+                </button>
+              ) : (
+                <button
+                  onClick={stopConversation}
+                  className="rounded-full bg-rose-500 px-7 py-2.5 font-medium text-black shadow-lg shadow-rose-500/30 transition hover:bg-rose-400"
+                >
+                  Stop
+                </button>
+              )}
+            </div>
+          ) : (
+            <TextComposer
+              onSend={sendTextMessage}
+              disabled={isThinking || isSpeaking}
+              replyLang={profile.replyLang}
+            />
+          )}
 
           {error && (
             <p className="max-w-md text-center text-sm text-rose-400">
@@ -1148,68 +1339,179 @@ function LevelPicker({
 }
 
 // ============================================================
-// LANG TOGGLE — chuyển ngôn ngữ mic giữa EN ↔ VI
+// HEADER CONTROLS — Dropdown helper + ModeToggle + LangSegmented
+// Gộp option vào dropdown để góc phải header không bị chật.
 // ============================================================
 
-function LangToggle({
-  lang,
+// Dropdown popover gọn: state mở/đóng + click outside auto-close.
+function Dropdown({
+  trigger,
+  align = "right",
+  children,
+}: {
+  trigger: (open: boolean) => React.ReactNode;
+  align?: "right" | "left";
+  children: (close: () => void) => React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="contents"
+      >
+        {trigger(open)}
+      </button>
+      {open && (
+        <div
+          className={`absolute top-full z-50 mt-2 min-w-[14rem] rounded-xl border border-slate-700/60 bg-slate-900/95 p-3 shadow-2xl backdrop-blur-md ${
+            align === "right" ? "right-0" : "left-0"
+          }`}
+        >
+          {children(() => setOpen(false))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Mode toggle: 🎤 Voice ↔ ⌨️ Text. Click để đổi mode ngay.
+function ModeToggle({
+  mode,
   onToggle,
 }: {
-  lang: InputLang;
+  mode: InteractionMode;
   onToggle: () => void;
 }) {
-  const isVi = lang === "vi";
+  const isVoice = mode === "voice";
   return (
     <button
       onClick={onToggle}
       title={
-        isVi
-          ? "Mic đang nghe tiếng Việt — bấm để chuyển về tiếng Anh"
-          : "Mic đang nghe tiếng Anh — bấm để bật chế độ tiếng Việt"
+        isVoice
+          ? "Đang ở chế độ Voice — bấm để chuyển sang Text"
+          : "Đang ở chế độ Text — bấm để chuyển sang Voice"
       }
-      className={`group flex select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wider transition ${
-        isVi
-          ? "border-rose-400/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/25"
-          : "border-sky-400/40 bg-sky-500/15 text-sky-200 hover:bg-sky-500/25"
+      className={`flex select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wider transition ${
+        isVoice
+          ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"
+          : "border-violet-400/40 bg-violet-500/15 text-violet-200 hover:bg-violet-500/25"
       }`}
     >
-      <span className="text-[9px] uppercase opacity-70">Mic</span>
-      <span className="text-base leading-none">{isVi ? "🇻🇳" : "🇺🇸"}</span>
-      <span>{isVi ? "VI" : "EN"}</span>
+      <span className="text-base leading-none">{isVoice ? "🎤" : "⌨️"}</span>
+      <span>{isVoice ? "VOICE" : "TEXT"}</span>
     </button>
   );
 }
 
-// Reply-language picker — chọn Kong sẽ trả lời bằng tiếng Anh (chế độ dạy)
-// hay tiếng Việt (chế độ trò chuyện). Tách biệt với LangToggle vì 2 thứ này
-// độc lập: user có thể nói tiếng Việt nhưng vẫn muốn Kong trả lời tiếng Anh
-// để luyện nghe, hoặc ngược lại.
-function ReplyLangPicker({
-  lang,
-  onToggle,
+// Segmented 3-way lang picker dùng bên trong Settings dropdown.
+function LangSegmented<L extends InputLang>({
+  value,
+  onChange,
+  options,
 }: {
-  lang: ReplyLang;
-  onToggle: () => void;
+  value: L;
+  onChange: (l: L) => void;
+  options: readonly L[];
 }) {
-  const isVi = lang === "vi";
   return (
-    <button
-      onClick={onToggle}
-      title={
-        isVi
-          ? "Kong đang trả lời bằng tiếng Việt — bấm để Kong dạy tiếng Anh"
-          : "Kong đang dạy tiếng Anh — bấm để chuyển sang trò chuyện tiếng Việt"
-      }
-      className={`group flex select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wider transition ${
-        isVi
-          ? "border-amber-400/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25"
-          : "border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"
-      }`}
+    <div className="flex gap-1">
+      {options.map((l) => {
+        const active = value === l;
+        return (
+          <button
+            key={l}
+            type="button"
+            onClick={() => onChange(l)}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-[11px] font-semibold tracking-wider transition ${
+              active
+                ? "border-cyan-400/60 bg-cyan-500/15 text-cyan-100"
+                : "border-slate-700 bg-slate-800/50 text-slate-300 hover:border-slate-600"
+            }`}
+          >
+            <span className="text-sm leading-none">{LANG_FLAG[l]}</span>
+            <span>{l.toUpperCase()}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Text composer — input + Send button cho Text mode. Phím Enter (không có
+// Shift) gửi, Shift+Enter xuống dòng. Disabled khi Kong đang suy nghĩ hoặc nói.
+function TextComposer({
+  onSend,
+  disabled,
+  replyLang,
+}: {
+  onSend: (text: string) => void;
+  disabled: boolean;
+  replyLang: ReplyLang;
+}) {
+  const [text, setText] = useState("");
+  const placeholder =
+    replyLang === "vi"
+      ? "Nhắn gì đó cho Kong…"
+      : replyLang === "zh"
+        ? "对 Kong 说点什么…"
+        : "Say something to Kong…";
+
+  const submit = () => {
+    const v = text.trim();
+    if (!v || disabled) return;
+    onSend(v);
+    setText("");
+  };
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+      className="flex w-full max-w-xl items-end gap-2"
     >
-      <span className="text-[9px] uppercase opacity-70">Kong</span>
-      <span className="text-base leading-none">💬</span>
-      <span>{isVi ? "VI" : "EN"}</span>
-    </button>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        placeholder={placeholder}
+        rows={1}
+        className="min-h-[42px] flex-1 resize-none rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/20"
+      />
+      <button
+        type="submit"
+        disabled={disabled || !text.trim()}
+        className="rounded-2xl bg-cyan-500 px-5 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Send
+      </button>
+    </form>
   );
 }
 
