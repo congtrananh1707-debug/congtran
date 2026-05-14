@@ -34,6 +34,52 @@ body {
   will-change: transform;
 }
 
+/* Contextual mesh overlays — fade in/out tuỳ theo topic Kong detect.
+   Mỗi overlay là một gradient cùng size với .bg-mesh, layered phía trên
+   nhưng dưới content (z-index -1). transition opacity 800ms để đổi tông
+   thật mềm, không gây giật mắt. */
+.bg-mesh-topic {
+  position: fixed;
+  inset: -10%;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 800ms ease-in-out;
+  animation: mesh-drift 24s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.bg-mesh-topic.active {
+  opacity: 1;
+}
+
+/* food — tông ấm (amber/rose) */
+.bg-mesh-food {
+  background-image:
+    radial-gradient(at 22% 18%, rgba(251, 146, 60, 0.22) 0px, transparent 45%),
+    radial-gradient(at 78% 32%, rgba(244, 63, 94, 0.18) 0px, transparent 50%),
+    radial-gradient(at 30% 85%, rgba(217, 119, 6, 0.14) 0px, transparent 50%),
+    radial-gradient(at 80% 80%, rgba(251, 191, 36, 0.16) 0px, transparent 50%);
+}
+
+/* travel — tông lạnh (cyan/sky) */
+.bg-mesh-travel {
+  background-image:
+    radial-gradient(at 22% 18%, rgba(56, 189, 248, 0.22) 0px, transparent 45%),
+    radial-gradient(at 78% 32%, rgba(45, 212, 191, 0.18) 0px, transparent 50%),
+    radial-gradient(at 30% 85%, rgba(125, 211, 252, 0.14) 0px, transparent 50%),
+    radial-gradient(at 80% 80%, rgba(20, 184, 166, 0.16) 0px, transparent 50%);
+}
+
+/* tech — tông neon (violet/fuchsia) */
+.bg-mesh-tech {
+  background-image:
+    radial-gradient(at 22% 18%, rgba(167, 139, 250, 0.22) 0px, transparent 45%),
+    radial-gradient(at 78% 32%, rgba(232, 121, 249, 0.18) 0px, transparent 50%),
+    radial-gradient(at 30% 85%, rgba(129, 140, 248, 0.14) 0px, transparent 50%),
+    radial-gradient(at 80% 80%, rgba(192, 132, 252, 0.16) 0px, transparent 50%);
+}
+
 @keyframes mesh-drift {
   0%,
   100% {

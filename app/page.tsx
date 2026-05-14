@@ -26,6 +26,8 @@ type OrbState = "idle" | "listening" | "waiting" | "thinking" | "speaking";
 type InputLang = "en" | "vi" | "zh";
 type ReplyLang = "en" | "vi" | "zh";
 type InteractionMode = "voice" | "text";
+// "" = no specific tint, dùng background mặc định.
+type Topic = "" | "food" | "travel" | "tech";
 
 const LANG_LABEL: Record<InputLang, string> = {
   en: "English",
@@ -212,6 +214,12 @@ export default function Page() {
   const [history, setHistory] = useState<Message[]>([]);
   const [interim, setInterim] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Topic Kong vừa detect — drive contextual background tint.
+  const [currentTopic, setCurrentTopic] = useState<Topic>("");
+  // Term trong Word Bank vừa được user dùng — pulse glow trong vài giây.
+  const [highlightedTerms, setHighlightedTerms] = useState<Set<string>>(
+    () => new Set()
+  );
 
   // ----- Refs -----
   const isActiveRef = useRef(false);
@@ -707,6 +715,7 @@ export default function Page() {
       correction: Correction;
       betterWay: BetterWay;
       suggestions: string[];
+      topic: Topic;
     } | null> => {
       const newHistory: Message[] = [
         ...historyRef.current,
@@ -772,7 +781,16 @@ export default function Page() {
         vocabulary?: WordBankItem[];
         interests?: string[];
         suggestions?: string[];
+        topic?: string;
       };
+
+      // Topic → drive contextual background. Chỉ cập nhật nếu LLM trả về
+      // 1 trong 3 enum hợp lệ; "" giữ background hiện tại (không reset
+      // mỗi turn về default — đỡ gây nhấp nháy khi user lệch chủ đề tạm thời).
+      const rawTopic = (data.topic ?? "").trim().toLowerCase();
+      if (rawTopic === "food" || rawTopic === "travel" || rawTopic === "tech") {
+        setCurrentTopic(rawTopic);
+      }
 
       const reply = (data.reply ?? "").trim();
       const vietnamese = (data.vietnamese ?? "").trim();
@@ -848,7 +866,20 @@ export default function Page() {
         ),
       }));
 
-      return { reply, vietnamese, suggestion, correction, betterWay, suggestions };
+      const topic: Topic =
+        rawTopic === "food" || rawTopic === "travel" || rawTopic === "tech"
+          ? rawTopic
+          : "";
+
+      return {
+        reply,
+        vietnamese,
+        suggestion,
+        correction,
+        betterWay,
+        suggestions,
+        topic,
+      };
     },
     []
   );
@@ -894,6 +925,32 @@ export default function Page() {
             }));
           }
         });
+
+        // Smart Word Bank — scan câu user vừa nói, highlight term họ DÙNG
+        // ĐÚNG. Match theo word boundary để "go" không khớp "gone".
+        const matched: string[] = [];
+        for (const w of p.wordBank) {
+          const term = w.term.trim();
+          if (!term) continue;
+          const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const re = new RegExp(`\\b${escaped}\\b`, "i");
+          if (re.test(msg.content)) matched.push(term);
+        }
+        if (matched.length > 0) {
+          setHighlightedTerms((prev) => {
+            const next = new Set(prev);
+            for (const t of matched) next.add(t);
+            return next;
+          });
+          // Auto-clear sau 4s — đủ để mắt user thấy pulse mà không phân tâm.
+          setTimeout(() => {
+            setHighlightedTerms((prev) => {
+              const next = new Set(prev);
+              for (const t of matched) next.delete(t);
+              return next;
+            });
+          }, 4000);
+        }
       }
     },
     [supabase]
@@ -1192,6 +1249,27 @@ export default function Page() {
 
   return (
     <div className="min-h-screen text-kong-ink">
+      {/* Contextual background — 3 mesh overlays, fade theo topic. Đặt
+          ngoài cùng để cover toàn viewport. Default (topic === "") tắt cả
+          ba, body fallback về mesh emerald mặc định trong layout.tsx. */}
+      <div
+        aria-hidden
+        className={`bg-mesh-topic bg-mesh-food ${
+          currentTopic === "food" ? "active" : ""
+        }`}
+      />
+      <div
+        aria-hidden
+        className={`bg-mesh-topic bg-mesh-travel ${
+          currentTopic === "travel" ? "active" : ""
+        }`}
+      />
+      <div
+        aria-hidden
+        className={`bg-mesh-topic bg-mesh-tech ${
+          currentTopic === "tech" ? "active" : ""
+        }`}
+      />
       <div className="mx-auto grid w-full max-w-7xl gap-5 p-4 md:p-6 lg:grid-cols-[260px_minmax(0,1fr)_300px]">
         {/* LEFT — Progress sidebar */}
         <aside className="order-2 lg:order-1 lg:sticky lg:top-6 lg:h-fit">
@@ -1343,6 +1421,15 @@ export default function Page() {
             />
           </div>
 
+          {/* Audio waveform — hiện khi voice mode đang nghe. Stream getUserMedia
+              riêng để không xung đột với SpeechRecognition. */}
+          <AudioWaveform
+            active={
+              profile.interactionMode === "voice" &&
+              (orbState === "listening" || orbState === "waiting")
+            }
+          />
+
           {/* Caption */}
           <div className="h-6 text-sm">
             {orbState === "idle" && profile.interactionMode === "voice" && (
@@ -1422,9 +1509,28 @@ export default function Page() {
 
         {/* RIGHT — Word Bank */}
         <aside className="order-3 lg:sticky lg:top-6 lg:h-fit">
-          <WordBank profile={profile} onClear={clearWordBank} />
+          <WordBank
+            profile={profile}
+            onClear={clearWordBank}
+            highlightedTerms={highlightedTerms}
+          />
         </aside>
       </div>
+
+      {/* Contextual background overlays — 3 topic gradients, fade in based
+          on currentTopic. Đặt ở root để cover toàn viewport, dưới content. */}
+      <div
+        aria-hidden
+        className={`bg-mesh-topic bg-mesh-food ${currentTopic === "food" ? "active" : ""}`}
+      />
+      <div
+        aria-hidden
+        className={`bg-mesh-topic bg-mesh-travel ${currentTopic === "travel" ? "active" : ""}`}
+      />
+      <div
+        aria-hidden
+        className={`bg-mesh-topic bg-mesh-tech ${currentTopic === "tech" ? "active" : ""}`}
+      />
     </div>
   );
 }
@@ -1678,6 +1784,151 @@ function TextComposer({
 // Floating suggestion bubbles — bố trí 3 chip quanh Kong (trái, phải-trên,
 // phải-dưới). Click → Kong đọc lại câu đó để user lặp lại. Tự động fade-in
 // staggered. Ẩn khi orbState là thinking/speaking để không gây nhiễu.
+// Audio waveform — vẽ sóng âm thực qua canvas. Mở getUserMedia riêng
+// (Web Speech API không expose audio stream của nó nên mình cần 1 stream
+// song song). AnalyserNode → frequency bin → 32 bars dập theo nhịp giọng.
+// Chỉ active khi `listening` để không hold mic vô ích.
+function AudioWaveform({ active }: { active: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number | null>(null);
+  const ctxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+
+    const stop = () => {
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      try {
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+      } catch {
+        /* noop */
+      }
+      streamRef.current = null;
+      try {
+        ctxRef.current?.close();
+      } catch {
+        /* noop */
+      }
+      ctxRef.current = null;
+      analyserRef.current = null;
+    };
+
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        const AudioCtx =
+          window.AudioContext ||
+          (window as any).webkitAudioContext;
+        const ctx = new AudioCtx();
+        ctxRef.current = ctx;
+        const src = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 128; // 64 bins; chỉ lấy phần thấp cho mượt
+        analyser.smoothingTimeConstant = 0.78;
+        src.connect(analyser);
+        analyserRef.current = analyser;
+
+        const bufferLen = analyser.frequencyBinCount;
+        const data = new Uint8Array(bufferLen);
+        const BARS = 32;
+        const STEP = Math.floor(bufferLen / BARS);
+
+        const draw = () => {
+          const canvas = canvasRef.current;
+          if (!canvas || !analyserRef.current) return;
+          const w = canvas.width;
+          const h = canvas.height;
+          const c2d = canvas.getContext("2d");
+          if (!c2d) return;
+
+          analyserRef.current.getByteFrequencyData(data);
+          c2d.clearRect(0, 0, w, h);
+
+          const barWidth = w / BARS;
+          for (let i = 0; i < BARS; i++) {
+            // Average a few bins per bar for smoother curve
+            let sum = 0;
+            for (let j = 0; j < STEP; j++) sum += data[i * STEP + j];
+            const v = sum / STEP / 255; // 0..1
+            const barH = Math.max(2, v * h * 0.92);
+            const x = i * barWidth + 1;
+            const y = (h - barH) / 2;
+            // Gradient từ trong ra ngoài cho cảm giác glow
+            const grad = c2d.createLinearGradient(0, y, 0, y + barH);
+            grad.addColorStop(0, "rgba(80, 250, 123, 0.95)");
+            grad.addColorStop(1, "rgba(80, 250, 123, 0.45)");
+            c2d.fillStyle = grad;
+            c2d.beginPath();
+            (c2d as any).roundRect?.(
+              x,
+              y,
+              barWidth - 2,
+              barH,
+              barWidth / 2
+            );
+            c2d.fill();
+          }
+
+          rafRef.current = requestAnimationFrame(draw);
+        };
+        draw();
+      } catch {
+        // Quyền mic bị từ chối hoặc không có thiết bị — waveform tắt lặng lẽ.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [active]);
+
+  // High-DPI: dim sizing cho sharp render trên retina.
+  useEffect(() => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = c.getBoundingClientRect();
+    c.width = rect.width * dpr;
+    c.height = rect.height * dpr;
+    const ctx = c.getContext("2d");
+    if (ctx) ctx.scale(dpr, dpr);
+  }, [active]);
+
+  return (
+    <AnimatePresence>
+      {active && (
+        <motion.div
+          initial={{ opacity: 0, scaleY: 0.6 }}
+          animate={{ opacity: 1, scaleY: 1 }}
+          exit={{ opacity: 0, scaleY: 0.6 }}
+          transition={{ duration: 0.25 }}
+          className="pointer-events-none mx-auto"
+          style={{ width: 220, height: 40 }}
+        >
+          <canvas
+            ref={canvasRef}
+            style={{ width: "100%", height: "100%" }}
+          />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 function FloatingSuggestions({
   suggestions,
   visible,
@@ -2251,15 +2502,35 @@ function ProgressPanel({ profile }: { profile: Profile }) {
 
 // Một thẻ từ vựng. Style "neumorphic": viền tối + inset highlight nhẹ,
 // hover thì border-glow Emerald. Icon 3D nhỏ phân biệt term.
-function WordBankCard({ word }: { word: WordBankItem }) {
+// `highlighted` = user vừa dùng term này trong câu → pulse glow trong 4s.
+function WordBankCard({
+  word,
+  highlighted,
+}: {
+  word: WordBankItem;
+  highlighted: boolean;
+}) {
   return (
     <motion.li
       initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
+      animate={{
+        opacity: 1,
+        y: 0,
+        scale: highlighted ? [1, 1.04, 1] : 1,
+      }}
       exit={{ opacity: 0 }}
       whileHover={{ y: -1 }}
-      transition={{ duration: 0.22 }}
-      className="group relative cursor-default rounded-xl border border-kong-border bg-space-800/60 p-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05),0_4px_12px_-6px_rgba(0,0,0,0.6)] transition hover:border-kong-glow/60 hover:shadow-glow-emerald"
+      transition={{
+        duration: highlighted ? 0.6 : 0.22,
+        scale: highlighted
+          ? { duration: 0.6, repeat: 3, ease: "easeInOut" }
+          : undefined,
+      }}
+      className={`group relative cursor-default rounded-xl border p-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05),0_4px_12px_-6px_rgba(0,0,0,0.6)] transition hover:border-kong-glow/60 hover:shadow-glow-emerald ${
+        highlighted
+          ? "border-kong-glow bg-kong-glow/10 shadow-glow-emerald-strong"
+          : "border-kong-border bg-space-800/60"
+      }`}
     >
       <div className="flex items-start gap-2.5">
         {/* Icon "3D" — gradient orb làm mark của từ */}
@@ -2289,9 +2560,11 @@ function WordBankCard({ word }: { word: WordBankItem }) {
 function WordBank({
   profile,
   onClear,
+  highlightedTerms,
 }: {
   profile: Profile;
   onClear: () => void;
+  highlightedTerms: Set<string>;
 }) {
   // Hiện 5 từ mới nhất, mới nhất đầu danh sách
   const recent = profile.wordBank.slice(-5).reverse();
@@ -2314,7 +2587,11 @@ function WordBank({
         <ul className="flex flex-col gap-2.5">
           <AnimatePresence initial={false}>
             {recent.map((w, i) => (
-              <WordBankCard key={`${w.term}-${i}`} word={w} />
+              <WordBankCard
+                key={`${w.term}-${i}`}
+                word={w}
+                highlighted={highlightedTerms.has(w.term)}
+              />
             ))}
           </AnimatePresence>
         </ul>

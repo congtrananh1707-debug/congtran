@@ -88,6 +88,11 @@ const SYSTEM_PROMPT_EN = [
   "- The \"reply\" field is read aloud — keep it UNDER 40 WORDS. Two short sentences are fine if they feel natural (e.g. a quick reaction + an invitation). No filler like 'As an AI…'.",
   "- The \"reply\" must FLOW naturally and never reference the correction — let the correction field do that work silently.",
   "",
+  "TOPIC TAGGING",
+  "- Classify the current conversation's topic into ONE of: \"food\", \"travel\", \"tech\", or \"\" (empty for anything else).",
+  "- food = eating, restaurants, cuisine, cooking, drinks. travel = places, trips, countries, weather, transport. tech = computers, software, AI, gadgets, programming.",
+  "- Use \"\" liberally — only tag when the topic is clearly dominant in the user's last 2-3 messages. The UI tints the background based on this so wrong tags feel jarring.",
+  "",
   "OUTPUT FORMAT — return STRICT JSON only. No prose, no markdown fences, no commentary outside the JSON.",
   "{",
   "  \"reply\": \"<spoken English reply, under 40 words, in natural conversational shape — react first, then optionally share / invite / ask ONE fresh open-ended question. Never closed questions. Never repeat earlier questions.>\",",
@@ -98,7 +103,8 @@ const SYSTEM_PROMPT_EN = [
   "  \"betterWay\": { \"original\": \"<verbatim user sentence>\", \"improved\": \"<native rewrite>\" },",
   "  \"suggestions\": [],",
   "  \"vocabulary\": [ { \"term\": \"<i+1 English word/phrase from your reply>\", \"vi\": \"<short Vietnamese gloss>\" } ],",
-  "  \"interests\": [\"<any new interest topic detected this turn>\"]",
+  "  \"interests\": [\"<any new interest topic detected this turn>\"],",
+  "  \"topic\": \"food|travel|tech|\"",
   "}",
   "",
   "vocabulary: 0–3 items. suggestions: always empty array []. correction & betterWay: use empty strings when not applicable. interests: 0–3 items.",
@@ -139,10 +145,11 @@ const SYSTEM_PROMPT_VI = [
   "  \"betterWay\": { \"original\": \"\", \"improved\": \"\" },",
   "  \"suggestions\": [\"<câu user có thể nói tiếp, tiếng Việt, ngắn, dưới 15 từ>\"],",
   "  \"vocabulary\": [],",
-  "  \"interests\": [\"<chủ đề user vừa nhắc, nếu có>\"]",
+  "  \"interests\": [\"<chủ đề user vừa nhắc, nếu có>\"],",
+  "  \"topic\": \"food|travel|tech|\"",
   "}",
   "",
-  "suggestions: 2–3 mục, tất cả các trường khác để rỗng/array rỗng theo template.",
+  "suggestions: 2–3 mục, tất cả các trường khác để rỗng/array rỗng theo template. topic: phân loại chủ đề hội thoại — food (ăn uống), travel (du lịch/địa danh/thời tiết), tech (công nghệ/máy tính/AI), hoặc \"\" cho mọi thứ khác. Dùng \"\" khi không rõ.",
 ].join("\n");
 
 // ============================================================
@@ -179,10 +186,11 @@ const SYSTEM_PROMPT_ZH = [
   "  \"betterWay\": { \"original\": \"\", \"improved\": \"\" },",
   "  \"suggestions\": [\"<用户可能接下去说的中文短句，15 字以内>\"],",
   "  \"vocabulary\": [],",
-  "  \"interests\": [\"<用户刚提到的话题，如有>\"]",
+  "  \"interests\": [\"<用户刚提到的话题，如有>\"],",
+  "  \"topic\": \"food|travel|tech|\"",
   "}",
   "",
-  "suggestions: 2–3 项；其他字段按模板留空。",
+  "suggestions: 2–3 项；其他字段按模板留空。topic: 对话主题分类 — food (饮食)、travel (旅游/地点/天气)、tech (科技/电脑/AI)，或 \"\" 表示其他。不确定就用 \"\"。",
 ].join("\n");
 
 // Bổ sung khi user bật Vietnamese-input mode trên client.
@@ -387,6 +395,14 @@ export async function POST(req: Request) {
           .filter((s: string) => s.length > 0 && s.length <= 120)
       : [];
 
+    // Topic — chỉ chấp nhận 1 trong 3 enum giá trị; mọi thứ khác → "" để
+    // UI dùng background mặc định. Bias toward empty để tránh "tint nhầm".
+    const rawTopic = clampString(parsed?.topic).toLowerCase();
+    const topic: "food" | "travel" | "tech" | "" =
+      rawTopic === "food" || rawTopic === "travel" || rawTopic === "tech"
+        ? rawTopic
+        : "";
+
     return NextResponse.json({
       reply,
       userLevel,
@@ -397,6 +413,7 @@ export async function POST(req: Request) {
       suggestions,
       vocabulary,
       interests,
+      topic,
     });
   } catch (err) {
     const message =
