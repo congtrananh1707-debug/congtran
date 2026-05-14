@@ -677,7 +677,15 @@ export default function Page() {
       const effectiveLevel =
         profileRef.current.manualLevel ?? profileRef.current.level;
 
-      const res = await fetch("/api/chat", {
+      // Gọi /api/chat (luôn) và /api/correct (chỉ EN mode, vì đó là feature
+      // dạy tiếng Anh) SONG SONG. Llama 8B không tin cậy với correction nhồi
+      // chung schema → endpoint riêng với prompt cực gọn chính xác hơn.
+      // Nếu correction lỗi, không break chat — chỉ bỏ qua correction.
+      const replyLang = profileRef.current.replyLang;
+      const isEnglish = replyLang === "en";
+      const isStart = userText === "[start]";
+
+      const chatPromise = fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -689,9 +697,25 @@ export default function Page() {
             levelLocked: profileRef.current.manualLevel !== null,
           },
           inputLang: profileRef.current.inputLang,
-          replyLang: profileRef.current.replyLang,
+          replyLang,
         }),
       });
+
+      const correctPromise =
+        isEnglish && !isStart
+          ? fetch("/api/correct", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: userText }),
+            })
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null)
+          : Promise.resolve(null);
+
+      const [res, correctRes] = await Promise.all([
+        chatPromise,
+        correctPromise,
+      ]);
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -718,8 +742,29 @@ export default function Page() {
         bw && typeof bw.original === "string" && typeof bw.improved === "string"
           ? { original: bw.original.trim(), improved: bw.improved.trim() }
           : { original: "", improved: "" };
+      // Correction — ưu tiên kết quả từ /api/correct (endpoint chuyên dụng,
+      // độ tin cậy cao hơn) nếu nó tìm được lỗi. Fallback về kết quả
+      // /api/chat nếu /api/correct rỗng hoặc fail.
+      const dedicated =
+        correctRes &&
+        typeof correctRes === "object" &&
+        typeof correctRes.original === "string" &&
+        typeof correctRes.corrected === "string" &&
+        correctRes.original.trim() &&
+        correctRes.corrected.trim() &&
+        correctRes.original.trim() !== correctRes.corrected.trim()
+          ? {
+              original: correctRes.original.trim(),
+              corrected: correctRes.corrected.trim(),
+              explanation:
+                typeof correctRes.explanation === "string"
+                  ? correctRes.explanation.trim()
+                  : "",
+            }
+          : null;
+
       const cr = data.correction;
-      const correction: Correction =
+      const fromChat: Correction =
         cr &&
         typeof cr.original === "string" &&
         typeof cr.corrected === "string" &&
@@ -730,6 +775,8 @@ export default function Page() {
               explanation: cr.explanation.trim(),
             }
           : { original: "", corrected: "", explanation: "" };
+
+      const correction: Correction = dedicated ?? fromChat;
       const suggestions: string[] = Array.isArray(data.suggestions)
         ? data.suggestions
             .map((s) => (typeof s === "string" ? s.trim() : ""))
@@ -1447,7 +1494,7 @@ function Dropdown({
       </button>
       {open && (
         <div
-          className={`glass-strong absolute top-full z-[100] mt-2 min-w-[14rem] rounded-xl p-3 ${
+          className={`glass-strong absolute top-full z-[100] mt-2 w-[18rem] max-w-[calc(100vw-2rem)] rounded-xl p-3 ${
             align === "right" ? "right-0" : "left-0"
           }`}
         >

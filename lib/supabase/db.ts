@@ -162,7 +162,7 @@ export async function bumpStreak(
 
   // Chỉ ghi nếu có thay đổi (streak hoặc ngày). Tránh write thừa cùng ngày.
   if (changed || profile.lastActiveDate !== date) {
-    await supabase
+    const { error } = await supabase
       .from("profiles")
       .update({
         last_active_date: date,
@@ -170,6 +170,16 @@ export async function bumpStreak(
         longest_streak: longest,
       })
       .eq("user_id", profile.userId);
+    if (error) {
+      // Lỗi phổ biến nhất: cột chưa tồn tại vì migration Phase 2 chưa chạy
+      // trên Supabase. Log thẳng để người dùng thấy ngay trong console.
+      // eslint-disable-next-line no-console
+      console.error(
+        "[bumpStreak] Không ghi được streak vào DB:",
+        error.message,
+        "— Đảm bảo bạn đã chạy migration Phase 2 (last_active_date, current_streak, longest_streak)."
+      );
+    }
   }
 
   return { currentStreak: streak, longestStreak: longest, date };
