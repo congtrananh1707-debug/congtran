@@ -220,6 +220,33 @@ export default function Page() {
   const [highlightedTerms, setHighlightedTerms] = useState<Set<string>>(
     () => new Set()
   );
+  // Tốc độ TTS — chỉ 2 mức: 1.0 (thường) | 0.75 (chậm, cho beginner).
+  // Persist qua localStorage thay vì DB vì là per-device UI preference.
+  const [speechRate, setSpeechRate] = useState<number>(() => {
+    if (typeof window === "undefined") return 1;
+    const v = window.localStorage.getItem("kong_speech_rate");
+    return v === "0.75" ? 0.75 : 1;
+  });
+  const speechRateRef = useRef(speechRate);
+  useEffect(() => {
+    speechRateRef.current = speechRate;
+    try {
+      window.localStorage.setItem("kong_speech_rate", String(speechRate));
+    } catch {
+      /* private mode / quota — bỏ qua */
+    }
+  }, [speechRate]);
+  // ResponseHints panel — toggle qua nút Magic Wand.
+  const [hintsOpen, setHintsOpen] = useState(false);
+  // Prefill cho TextComposer — bump nonce mỗi lần để effect fire ngay cả
+  // khi text giống nhau lần trước.
+  const [composerPrefill, setComposerPrefill] = useState<{
+    text: string;
+    nonce: number;
+  }>({ text: "", nonce: 0 });
+  const prefillComposer = useCallback((text: string) => {
+    setComposerPrefill((p) => ({ text, nonce: p.nonce + 1 }));
+  }, []);
 
   // ----- Refs -----
   const isActiveRef = useRef(false);
@@ -645,7 +672,8 @@ export default function Page() {
       // Chỉ gán voice nếu thực sự có. iOS Safari đôi khi câm khi voice = null.
       if (voice) u.voice = voice;
       u.lang = LANG_LOCALE[replyLang];
-      u.rate = 1;
+      // Speech rate user-controlled: 1.0 thường / 0.75 chậm (beginner mode).
+      u.rate = speechRateRef.current || 1;
       u.pitch = 1;
       u.volume = 1;
 
@@ -1359,6 +1387,16 @@ export default function Page() {
                         onChange={setManualLevel}
                       />
                     </div>
+
+                    <div>
+                      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        Tốc độ Kong nói
+                      </div>
+                      <SpeedController
+                        rate={speechRate}
+                        onChange={setSpeechRate}
+                      />
+                    </div>
                   </div>
                 )}
               </Dropdown>
@@ -1462,32 +1500,61 @@ export default function Page() {
             )}
           </div>
 
-          {/* Controls */}
-          {profile.interactionMode === "voice" ? (
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              {!isActive ? (
-                <button
-                  onClick={startConversation}
-                  className="rounded-full bg-kong-glow px-7 py-2.5 font-display font-medium text-space-900 shadow-glow-emerald transition hover:bg-kong-glowSoft hover:shadow-glow-emerald-strong"
-                >
-                  Start
-                </button>
-              ) : (
-                <button
-                  onClick={stopConversation}
-                  className="rounded-full bg-rose-500 px-7 py-2.5 font-display font-medium text-space-900 shadow-lg shadow-rose-500/30 transition hover:bg-rose-400"
-                >
-                  Stop
-                </button>
-              )}
-            </div>
-          ) : (
-            <TextComposer
-              onSend={sendTextMessage}
-              disabled={isThinking || isSpeaking}
+          {/* Controls — wrapper relative để ResponseHints panel có chỗ nổi
+              lên trên controls bằng absolute positioning. */}
+          <div className="relative w-full">
+            <ResponseHints
+              hints={latestSuggestions}
               replyLang={profile.replyLang}
+              open={hintsOpen}
+              onToggle={() => setHintsOpen((v) => !v)}
+              onPick={(text) => {
+                setHintsOpen(false);
+                if (profile.interactionMode === "voice") {
+                  // Voice mode: Kong đọc câu để user nghe + lặp lại.
+                  safeReplay(text);
+                } else {
+                  // Text mode: gửi câu thẳng vào hội thoại.
+                  sendTextMessage(text);
+                }
+              }}
             />
-          )}
+
+            {profile.interactionMode === "voice" ? (
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                {!isActive ? (
+                  <button
+                    onClick={startConversation}
+                    className="rounded-full bg-kong-glow px-7 py-2.5 font-display font-medium text-space-900 shadow-glow-emerald transition hover:bg-kong-glowSoft hover:shadow-glow-emerald-strong"
+                  >
+                    Start
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopConversation}
+                    className="rounded-full bg-rose-500 px-7 py-2.5 font-display font-medium text-space-900 shadow-lg shadow-rose-500/30 transition hover:bg-rose-400"
+                  >
+                    Stop
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex w-full flex-col items-stretch gap-2">
+                {profile.interests.length > 0 && (
+                  <ConversationStarters
+                    interests={profile.interests}
+                    replyLang={profile.replyLang}
+                    onPick={(text) => sendTextMessage(text)}
+                  />
+                )}
+                <TextComposer
+                  onSend={sendTextMessage}
+                  disabled={isThinking || isSpeaking}
+                  replyLang={profile.replyLang}
+                />
+              </div>
+            )}
+          </div>
 
           {error && (
             <p className="max-w-md text-center text-sm text-rose-400">
@@ -1501,6 +1568,7 @@ export default function Page() {
               history={history}
               isSpeaking={isSpeaking}
               level={profile.manualLevel ?? profile.level}
+              replyLang={profile.replyLang}
               chatEndRef={chatEndRef}
               onReplay={safeReplay}
             />
@@ -1718,18 +1786,212 @@ function LangSegmented<L extends InputLang>({
   );
 }
 
+// SpeedController — 2 mức tốc độ TTS: 0.75 (chậm, cho beginner) hoặc 1.0
+// (thường). Icon con rùa vs con thỏ để cảm giác trực quan.
+function SpeedController({
+  rate,
+  onChange,
+}: {
+  rate: number;
+  onChange: (r: number) => void;
+}) {
+  const options: { rate: number; icon: string; label: string }[] = [
+    { rate: 0.75, icon: "🐢", label: "Chậm" },
+    { rate: 1, icon: "🐰", label: "Thường" },
+  ];
+  return (
+    <div className="flex gap-1">
+      {options.map((o) => {
+        const active = Math.abs(rate - o.rate) < 0.01;
+        return (
+          <button
+            key={o.rate}
+            type="button"
+            onClick={() => onChange(o.rate)}
+            title={`Tốc độ ${o.label.toLowerCase()} (${o.rate}x)`}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-[11px] font-semibold tracking-wider transition ${
+              active
+                ? "border-cyan-400/60 bg-cyan-500/15 text-cyan-100"
+                : "border-slate-700 bg-slate-800/50 text-slate-300 hover:border-slate-600"
+            }`}
+          >
+            <span className="text-sm leading-none">{o.icon}</span>
+            <span>{o.rate}x</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ConversationStarters — chip prompts dựa trên profile.interests. Beginner
+// gặp khoảng lặng có thể bấm 1 chip để Kong giúp khơi mào. Fallback list
+// generic khi interests rỗng (user mới chưa có dữ liệu cá nhân hoá).
+function ConversationStarters({
+  interests,
+  replyLang,
+  onPick,
+}: {
+  interests: string[];
+  replyLang: ReplyLang;
+  onPick: (text: string) => void;
+}) {
+  const starters = useMemo<string[]>(() => {
+    if (interests.length > 0) {
+      const template =
+        replyLang === "vi"
+          ? "Mình muốn nói chuyện về {x}."
+          : replyLang === "zh"
+            ? "我想聊聊{x}。"
+            : "Let's talk about {x}.";
+      return interests.slice(0, 4).map((i) => template.replace("{x}", i));
+    }
+    return replyLang === "vi"
+      ? ["Chào Kong!", "Kể tớ chuyện gì vui đi", "Hôm nay bạn thế nào?"]
+      : replyLang === "zh"
+        ? ["你好，Kong！", "讲点有趣的事", "你今天怎么样？"]
+        : [
+            "Hi Kong!",
+            "Tell me something fun.",
+            "How are you today?",
+            "What should we talk about?",
+          ];
+  }, [interests, replyLang]);
+
+  if (starters.length === 0) return null;
+
+  return (
+    <div className="flex w-full max-w-xl flex-wrap items-center justify-center gap-1.5">
+      <span className="text-[10px] uppercase tracking-wider text-kong-inkSubtle">
+        Gợi ý mở chuyện
+      </span>
+      {starters.map((s, i) => (
+        <button
+          key={`starter-${i}`}
+          type="button"
+          onClick={() => onPick(s)}
+          className="rounded-full border border-kong-border bg-transparent px-2.5 py-1 text-[11px] text-kong-inkMuted transition hover:border-kong-glow/60 hover:bg-kong-glow/10 hover:text-kong-ink"
+        >
+          {s}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ResponseHints — Magic wand button + panel chứa 3 pill gợi ý câu trả lời.
+// Beginner-friendly: nếu Kong chưa có suggestions (vd: lượt đầu, hoặc reply
+// không có data), fallback về 3 câu sinh tồn theo language. Panel float TRÊN
+// controls (absolute) — stagger fade-in, click pill → onPick + auto-close.
+const FALLBACK_HINTS: Record<ReplyLang, string[]> = {
+  en: ["I agree with you", "Can you explain more?", "That's interesting!"],
+  vi: [
+    "Mình đồng ý với bạn",
+    "Bạn giải thích thêm được không?",
+    "Thú vị thật!",
+  ],
+  zh: ["我同意你的看法", "你能再解释一下吗？", "真有意思！"],
+};
+
+function ResponseHints({
+  hints,
+  replyLang,
+  open,
+  onToggle,
+  onPick,
+}: {
+  hints: string[];
+  replyLang: ReplyLang;
+  open: boolean;
+  onToggle: () => void;
+  onPick: (text: string) => void;
+}) {
+  const effective =
+    hints.length > 0 ? hints.slice(0, 3) : FALLBACK_HINTS[replyLang];
+
+  return (
+    <>
+      {/* Wand button — góc phải, luôn hiện. Đổi tông khi panel đang mở. */}
+      <button
+        type="button"
+        onClick={onToggle}
+        title="Gợi ý câu trả lời nhanh"
+        aria-label="Gợi ý câu trả lời"
+        aria-expanded={open}
+        className={`absolute -top-2 right-0 z-20 flex h-9 w-9 items-center justify-center rounded-full border transition ${
+          open
+            ? "border-kong-glow bg-kong-glow/20 text-kong-glow shadow-glow-emerald"
+            : "border-kong-border bg-space-800/70 text-kong-inkMuted hover:border-kong-glow/60 hover:text-kong-glowSoft hover:shadow-glow-emerald"
+        }`}
+      >
+        <span className="text-base leading-none">🪄</span>
+      </button>
+
+      {/* Panel — slide-up từ dưới controls. Pointer-events-auto cho phép click
+          xuyên qua các vùng absolute siblings. */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: 0.22 }}
+            className="glass absolute -top-16 left-1/2 z-10 flex w-max max-w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-2xl px-3 py-2"
+          >
+            <span className="text-[10px] uppercase tracking-wider text-kong-glow">
+              ✨ Gợi ý
+            </span>
+            {effective.map((s, i) => (
+              <motion.button
+                key={`hint-${i}-${s.slice(0, 10)}`}
+                initial={{ opacity: 0, scale: 0.92, y: 4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ delay: i * 0.08, duration: 0.22 }}
+                whileHover={{ y: -1 }}
+                type="button"
+                onClick={() => onPick(s)}
+                className="rounded-full border border-kong-glow/40 bg-kong-glow/10 px-3 py-1 text-[11px] text-kong-ink transition hover:border-kong-glow/80 hover:bg-kong-glow/20 hover:text-kong-glowSoft"
+              >
+                {s}
+              </motion.button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
 // Text composer — input + Send button cho Text mode. Phím Enter (không có
 // Shift) gửi, Shift+Enter xuống dòng. Disabled khi Kong đang suy nghĩ hoặc nói.
+// `prefill` cho phép parent push một câu khởi đầu (vd: từ ConversationStarters)
+// vào ô input — bumping nonce mỗi lần khiến effect chạy lại dù text giống nhau.
+
 function TextComposer({
   onSend,
   disabled,
   replyLang,
+  prefill,
 }: {
   onSend: (text: string) => void;
   disabled: boolean;
   replyLang: ReplyLang;
+  prefill?: { text: string; nonce: number };
 }) {
   const [text, setText] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!prefill || !prefill.text) return;
+    setText(prefill.text);
+    // Focus + caret cuối câu để user gõ tiếp / chỉnh.
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(prefill.text.length, prefill.text.length);
+      }
+    });
+  }, [prefill]);
   const placeholder =
     replyLang === "vi"
       ? "Nhắn gì đó cho Kong…"
@@ -1753,6 +2015,7 @@ function TextComposer({
       className="flex w-full max-w-xl items-end gap-2"
     >
       <textarea
+        ref={inputRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -2233,12 +2496,14 @@ function ChatHistory({
   history,
   isSpeaking,
   level,
+  replyLang,
   chatEndRef,
   onReplay,
 }: {
   history: Message[];
   isSpeaking: boolean;
   level: Level;
+  replyLang: ReplyLang;
   chatEndRef: React.RefObject<HTMLDivElement>;
   onReplay: (text: string) => void;
 }) {
@@ -2273,6 +2538,7 @@ function ChatHistory({
                     m={m}
                     isUser={isUser}
                     level={level}
+                    replyLang={replyLang}
                     onReplay={onReplay}
                   />
                 </motion.div>
@@ -2286,15 +2552,209 @@ function ChatHistory({
   );
 }
 
+// ============================================================
+// Tap-to-Translate — tooltip cho từng từ trong message của Kong.
+// ============================================================
+
+type WordMeaning = { vi: string; ipa: string; pos: string };
+// Cache module-level — sống xuyên qua các message + bubble. Beginner click
+// cùng 1 từ ở 2 message khác nhau → chỉ fetch 1 lần.
+const WORD_CACHE = new Map<string, WordMeaning>();
+
+function TappableText({
+  text,
+  onPlayWord,
+}: {
+  text: string;
+  onPlayWord: (word: string) => void;
+}) {
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+
+  // Tokenize giữ thứ tự — chuỗi word [A-Za-z'] xen kẽ với chuỗi không-word
+  // (space, punctuation). Chỉ word mới clickable.
+  const tokens = useMemo(() => {
+    return text.split(/([A-Za-z][A-Za-z']*)/).filter((t) => t.length > 0);
+  }, [text]);
+
+  // Click ngoài / Esc → đóng popover.
+  useEffect(() => {
+    if (activeIdx === null) return;
+    const onDocClick = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest("[data-word-popover]") && !t.closest("[data-word-tap]")) {
+        setActiveIdx(null);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setActiveIdx(null);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [activeIdx]);
+
+  return (
+    <span>
+      {tokens.map((tk, idx) => {
+        const isWord = /^[A-Za-z][A-Za-z']*$/.test(tk);
+        if (!isWord) return <span key={idx}>{tk}</span>;
+        // Bỏ qua từ quá ngắn (a, I) — beginner không cần tra.
+        if (tk.length === 1)
+          return <span key={idx}>{tk}</span>;
+        const active = activeIdx === idx;
+        return (
+          <span key={idx} className="relative inline-block">
+            <button
+              type="button"
+              data-word-tap
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveIdx(active ? null : idx);
+              }}
+              className={`cursor-pointer rounded-sm px-0.5 transition ${
+                active
+                  ? "bg-kong-glow/25 text-kong-glowSoft"
+                  : "hover:bg-kong-glow/15 hover:text-kong-glowSoft"
+              }`}
+            >
+              {tk}
+            </button>
+            <AnimatePresence>
+              {active && (
+                <WordPopover
+                  word={tk}
+                  context={text}
+                  onPlay={() => onPlayWord(tk)}
+                  onClose={() => setActiveIdx(null)}
+                />
+              )}
+            </AnimatePresence>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function WordPopover({
+  word,
+  context,
+  onPlay,
+  onClose,
+}: {
+  word: string;
+  context: string;
+  onPlay: () => void;
+  onClose: () => void;
+}) {
+  const cacheKey = word.toLowerCase();
+  const initial = WORD_CACHE.get(cacheKey) ?? null;
+  const [data, setData] = useState<WordMeaning | null>(initial);
+  const [loading, setLoading] = useState(initial === null);
+
+  useEffect(() => {
+    if (initial) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/word-meaning", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ word, context }),
+        });
+        const json = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (json && typeof json === "object" && !("error" in json)) {
+          const wm: WordMeaning = {
+            vi: typeof json.vi === "string" ? json.vi : "",
+            ipa: typeof json.ipa === "string" ? json.ipa : "",
+            pos: typeof json.pos === "string" ? json.pos : "",
+          };
+          WORD_CACHE.set(cacheKey, wm);
+          setData(wm);
+        }
+      } catch {
+        /* network fail — show "không tra được" */
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <motion.div
+      data-word-popover
+      initial={{ opacity: 0, scale: 0.92, y: -4 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.92 }}
+      transition={{ duration: 0.16 }}
+      className="glass-strong absolute left-1/2 top-full z-50 mt-1 w-[14rem] -translate-x-1/2 rounded-xl px-3 py-2 text-xs"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-display font-semibold text-kong-ink">{word}</span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlay();
+            }}
+            title="Nghe từ này"
+            aria-label="Nghe từ này"
+            className="rounded-full px-1.5 py-0.5 text-kong-glow transition hover:bg-kong-glow/20"
+          >
+            🔊
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            aria-label="Đóng"
+            className="rounded-full px-1 text-kong-inkSubtle transition hover:bg-white/10"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+      {data?.ipa && (
+        <div className="mt-0.5 font-mono text-[10px] text-kong-inkMuted">
+          {data.ipa}
+          {data.pos && (
+            <span className="ml-2 italic text-kong-inkSubtle">{data.pos}</span>
+          )}
+        </div>
+      )}
+      <div className="mt-1 text-[11px] text-emerald-200">
+        {loading
+          ? "Đang tra…"
+          : data?.vi
+            ? data.vi
+            : "Không tra được nghĩa."}
+      </div>
+    </motion.div>
+  );
+}
+
 function Bubble({
   m,
   isUser,
   level,
+  replyLang,
   onReplay,
 }: {
   m: Message;
   isUser: boolean;
   level: Level;
+  replyLang: ReplyLang;
   onReplay: (text: string) => void;
 }) {
   const [showVi, setShowVi] = useState(false);
@@ -2329,7 +2789,15 @@ function Bubble({
           </button>
         )}
       </div>
-      <div className="text-slate-50">{m.content}</div>
+      <div className="text-slate-50">
+        {/* Tap-to-Translate: chỉ enable cho message của Kong ở chế độ EN.
+            VI/ZH reply là tiếng mẹ đẻ của user, không cần tra từ. */}
+        {!isUser && replyLang === "en" ? (
+          <TappableText text={m.content} onPlayWord={onReplay} />
+        ) : (
+          m.content
+        )}
+      </div>
 
       {/* Bản dịch tiếng Việt tự hiện cho A1/A2 */}
       {showViAuto && (
@@ -2370,7 +2838,8 @@ function Bubble({
         </div>
       )}
 
-      {/* Correction — sửa lỗi ngữ pháp / từ vựng cho câu user vừa nói */}
+      {/* Correction — sửa lỗi: chữ sai (rose) gạch ngang, chữ đúng (emerald)
+          làm bật rõ ràng để beginner thấy ngay "sai chỗ nào → đổi thành gì". */}
       {!isUser &&
         m.correction?.original &&
         m.correction?.corrected &&
@@ -2379,10 +2848,10 @@ function Bubble({
             <div className="mb-1 font-semibold uppercase tracking-wider text-rose-200/90">
               ✏️ Câu đúng
             </div>
-            <div className="text-slate-300/80 line-through decoration-rose-300/40">
+            <div className="text-rose-200/85 line-through decoration-rose-300/60 decoration-[1.5px]">
               {m.correction.original}
             </div>
-            <div className="mt-0.5 text-rose-50">
+            <div className="mt-0.5 font-medium text-kong-glow">
               → {m.correction.corrected}
             </div>
             {m.correction.explanation && (
@@ -2393,16 +2862,29 @@ function Bubble({
           </div>
         )}
 
-      {/* "Better way to say it" — paraphrase tự nhiên hơn cho 1 câu user vừa nói */}
+      {/* "Better way to say it" — sparkle icon + animated shimmer trên header
+          để beginner cảm thấy được Kong khích lệ khi nói đúng. */}
       {!isUser && m.betterWay?.original && m.betterWay?.improved && (
         <div className="mt-2 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/10 p-2.5 text-[11px] leading-relaxed">
-          <div className="mb-1 font-semibold uppercase tracking-wider text-fuchsia-200/90">
-            ✨ Better way to say it
+          <div className="mb-1 flex items-center gap-1.5 font-semibold uppercase tracking-wider text-fuchsia-200/90">
+            <motion.span
+              animate={{ rotate: [0, 12, -8, 0], scale: [1, 1.18, 0.95, 1] }}
+              transition={{
+                duration: 1.6,
+                repeat: Infinity,
+                repeatDelay: 2.4,
+                ease: "easeInOut",
+              }}
+              className="inline-block"
+            >
+              ✨
+            </motion.span>
+            <span>Better way to say it</span>
           </div>
-          <div className="text-slate-300/80 line-through decoration-fuchsia-300/40">
+          <div className="text-fuchsia-200/80 line-through decoration-fuchsia-300/50 decoration-[1.5px]">
             {m.betterWay.original}
           </div>
-          <div className="mt-0.5 text-fuchsia-100">
+          <div className="mt-0.5 font-medium text-kong-glow">
             → {m.betterWay.improved}
           </div>
         </div>
