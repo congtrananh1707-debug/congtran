@@ -33,6 +33,10 @@ export type StoredProfile = {
   replyLang: ReplyLang;
   interactionMode: InteractionMode;
   wordBank: WordBankItem[];
+  // Streak — số ngày liên tiếp user có hoạt động.
+  currentStreak: number;
+  longestStreak: number;
+  lastActiveDate: string | null; // ISO YYYY-MM-DD, null = chưa có turn nào.
 };
 
 export type StoredMessage = {
@@ -97,7 +101,78 @@ export async function loadProfile(
     replyLang: REPLY_LANGS.includes(data.reply_lang) ? data.reply_lang : "en",
     interactionMode: data.interaction_mode === "text" ? "text" : "voice",
     wordBank: asWordBank(data.word_bank),
+    currentStreak:
+      typeof data.current_streak === "number" ? data.current_streak : 0,
+    longestStreak:
+      typeof data.longest_streak === "number" ? data.longest_streak : 0,
+    lastActiveDate:
+      typeof data.last_active_date === "string" ? data.last_active_date : null,
   };
+}
+
+// Format YYYY-MM-DD theo giờ local — tránh lệch ngày khi user ở múi giờ khác UTC.
+function todayLocalISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// Tính streak mới dựa trên lần active gần nhất:
+// - cùng ngày  → giữ nguyên (no-op).
+// - đúng hôm qua → streak + 1.
+// - cách ≥ 2 ngày → streak về 1 (mở chuỗi mới).
+// - chưa có lần nào → 1.
+export function nextStreak(
+  prevDate: string | null,
+  prevStreak: number
+): { date: string; streak: number; changed: boolean } {
+  const today = todayLocalISO();
+  if (prevDate === today) {
+    return { date: today, streak: prevStreak || 1, changed: false };
+  }
+  if (prevDate) {
+    const prev = new Date(prevDate);
+    const todayD = new Date(today);
+    const diffDays = Math.round(
+      (todayD.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    if (diffDays === 1) {
+      return { date: today, streak: prevStreak + 1, changed: true };
+    }
+  }
+  return { date: today, streak: 1, changed: true };
+}
+
+// Ghi streak mới + longest_streak nếu vượt kỷ lục. Trả về { current, longest }
+// sau khi cập nhật (để client cập nhật state ngay không cần re-fetch).
+export async function bumpStreak(
+  supabase: SupabaseClient,
+  profile: Pick<
+    StoredProfile,
+    "userId" | "currentStreak" | "longestStreak" | "lastActiveDate"
+  >
+): Promise<{ currentStreak: number; longestStreak: number; date: string }> {
+  const { date, streak, changed } = nextStreak(
+    profile.lastActiveDate,
+    profile.currentStreak
+  );
+  const longest = Math.max(profile.longestStreak, streak);
+
+  // Chỉ ghi nếu có thay đổi (streak hoặc ngày). Tránh write thừa cùng ngày.
+  if (changed || profile.lastActiveDate !== date) {
+    await supabase
+      .from("profiles")
+      .update({
+        last_active_date: date,
+        current_streak: streak,
+        longest_streak: longest,
+      })
+      .eq("user_id", profile.userId);
+  }
+
+  return { currentStreak: streak, longestStreak: longest, date };
 }
 
 // Ghi đè các field có thể chỉnh (không động vào username/role).

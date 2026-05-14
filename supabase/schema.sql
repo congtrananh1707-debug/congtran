@@ -135,6 +135,16 @@ alter table public.profiles
   add column if not exists interaction_mode text not null default 'voice'
   check (interaction_mode in ('voice', 'text'));
 
+-- Daily streak — # ngày liên tiếp user có ít nhất 1 turn.
+-- last_active_date dùng để tính: cùng ngày = no-op, +1 ngày = streak+1,
+-- gap ≥ 2 ngày = streak về 1.
+alter table public.profiles
+  add column if not exists last_active_date date;
+alter table public.profiles
+  add column if not exists current_streak int not null default 0;
+alter table public.profiles
+  add column if not exists longest_streak int not null default 0;
+
 -- Per-message correction analysis (replaces the standalone Smart Hint).
 -- Shape: { original, corrected, explanation }. Empty strings = no fix needed.
 alter table public.messages

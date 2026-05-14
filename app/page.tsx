@@ -10,6 +10,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
 import {
+  bumpStreak,
   insertMessage,
   loadProfile as loadProfileFromDB,
   loadRecentMessages,
@@ -62,6 +63,9 @@ type Profile = {
   inputLang: InputLang;
   replyLang: ReplyLang; // ngôn ngữ Kong trả lời (en/vi/zh)
   interactionMode: InteractionMode; // voice = hands-free, text = gõ
+  currentStreak: number;
+  longestStreak: number;
+  lastActiveDate: string | null;
 };
 
 type BetterWay = { original: string; improved: string };
@@ -104,6 +108,9 @@ const DEFAULT_PROFILE: Profile = {
   inputLang: "en",
   replyLang: "en",
   interactionMode: "voice",
+  currentStreak: 0,
+  longestStreak: 0,
+  lastActiveDate: null,
 };
 
 const LEVEL_BADGE: Record<Level, string> = {
@@ -249,6 +256,9 @@ export default function Page() {
           inputLang: stored.inputLang,
           replyLang: stored.replyLang,
           interactionMode: stored.interactionMode,
+          currentStreak: stored.currentStreak,
+          longestStreak: stored.longestStreak,
+          lastActiveDate: stored.lastActiveDate,
         };
         setProfile(next);
         profileRef.current = next;
@@ -772,6 +782,32 @@ export default function Page() {
         betterWay: msg.betterWay,
         suggestions: msg.suggestions,
       });
+
+      // Mỗi turn của USER mới tính như "1 lần active hôm nay" → bump streak.
+      // Reply của Kong không tính (tránh inflate).
+      if (msg.role === "user") {
+        const p = profileRef.current;
+        void bumpStreak(supabase, {
+          userId: uid,
+          currentStreak: p.currentStreak,
+          longestStreak: p.longestStreak,
+          lastActiveDate: p.lastActiveDate,
+        }).then((res) => {
+          // Đồng bộ state nếu có thay đổi (tránh re-render thừa khi cùng ngày).
+          if (
+            res.currentStreak !== p.currentStreak ||
+            res.longestStreak !== p.longestStreak ||
+            res.date !== p.lastActiveDate
+          ) {
+            setProfile((prev) => ({
+              ...prev,
+              currentStreak: res.currentStreak,
+              longestStreak: res.longestStreak,
+              lastActiveDate: res.date,
+            }));
+          }
+        });
+      }
     },
     [supabase]
   );
@@ -970,6 +1006,18 @@ export default function Page() {
           ? "listening"
           : "idle";
 
+  // Gợi ý câu user có thể nói tiếp — lấy từ message gần nhất của Kong.
+  // Hiển thị dưới dạng floating bubbles quanh mascot (thay cho Try Saying cũ).
+  const latestSuggestions = useMemo<string[]>(() => {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const m = history[i];
+      if (m.role === "assistant" && m.suggestions && m.suggestions.length > 0) {
+        return m.suggestions.slice(0, 3);
+      }
+    }
+    return [];
+  }, [history]);
+
   // ----- Reset từ vựng (clear word bank) -----
   const clearWordBank = useCallback(() => {
     setProfile((p) => ({ ...p, wordBank: [], interests: [] }));
@@ -1057,9 +1105,14 @@ export default function Page() {
 
   return (
     <div className="min-h-screen text-kong-ink">
-      <div className="mx-auto grid w-full max-w-6xl gap-6 p-4 md:p-6 lg:grid-cols-[1fr_320px]">
-        {/* MAIN */}
-        <main className="flex flex-col items-center gap-4">
+      <div className="mx-auto grid w-full max-w-7xl gap-5 p-4 md:p-6 lg:grid-cols-[260px_minmax(0,1fr)_300px]">
+        {/* LEFT — Progress sidebar */}
+        <aside className="order-2 lg:order-1 lg:sticky lg:top-6 lg:h-fit">
+          <ProgressPanel profile={profile} />
+        </aside>
+
+        {/* CENTER — Chat */}
+        <main className="order-1 flex min-w-0 flex-col items-center gap-4 lg:order-2">
           {/* Header */}
           <div className="glass flex w-full items-start justify-between gap-3 rounded-2xl px-4 py-3">
             <div>
@@ -1185,8 +1238,19 @@ export default function Page() {
             </div>
           </div>
 
-          {/* Robot face */}
-          <RobotFace state={orbState} />
+          {/* Robot face + floating suggestion bubbles */}
+          <div className="relative">
+            <RobotFace state={orbState} />
+            <FloatingSuggestions
+              suggestions={latestSuggestions}
+              visible={
+                latestSuggestions.length > 0 &&
+                orbState !== "thinking" &&
+                orbState !== "speaking"
+              }
+              onPick={safeReplay}
+            />
+          </div>
 
           {/* Caption */}
           <div className="h-6 text-sm">
@@ -1265,8 +1329,8 @@ export default function Page() {
           </div>
         </main>
 
-        {/* SIDEBAR */}
-        <aside className="lg:sticky lg:top-6 lg:h-fit">
+        {/* RIGHT — Word Bank */}
+        <aside className="order-3 lg:sticky lg:top-6 lg:h-fit">
           <WordBank profile={profile} onClear={clearWordBank} />
         </aside>
       </div>
@@ -1383,7 +1447,7 @@ function Dropdown({
       </button>
       {open && (
         <div
-          className={`absolute top-full z-50 mt-2 min-w-[14rem] rounded-xl border border-slate-700/60 bg-slate-900/95 p-3 shadow-2xl backdrop-blur-md ${
+          className={`glass-strong absolute top-full z-[100] mt-2 min-w-[14rem] rounded-xl p-3 ${
             align === "right" ? "right-0" : "left-0"
           }`}
         >
@@ -1519,6 +1583,49 @@ function TextComposer({
 // ROBOT FACE — đầu robot trắng + tai mèo + mắt LED + miệng động
 // Có hỗ trợ trạng thái "waiting" (halo ấm vàng nhạt, mắt mơ màng)
 // ============================================================
+
+// Floating suggestion bubbles — bố trí 3 chip quanh Kong (trái, phải-trên,
+// phải-dưới). Click → Kong đọc lại câu đó để user lặp lại. Tự động fade-in
+// staggered. Ẩn khi orbState là thinking/speaking để không gây nhiễu.
+function FloatingSuggestions({
+  suggestions,
+  visible,
+  onPick,
+}: {
+  suggestions: string[];
+  visible: boolean;
+  onPick: (text: string) => void;
+}) {
+  // 3 vị trí cố định (top-left, top-right, bottom-right) — đủ cách mặt Kong
+  // để không che mắt; trên mobile co lại vẫn nhìn được mascot.
+  const POSITIONS = [
+    "absolute -left-4 top-8 hidden sm:flex",
+    "absolute -right-4 top-2 hidden md:flex",
+    "absolute -right-2 bottom-6 hidden md:flex",
+  ];
+
+  return (
+    <AnimatePresence>
+      {visible &&
+        suggestions.slice(0, 3).map((s, i) => (
+          <motion.button
+            key={`bubble-${i}-${s.slice(0, 8)}`}
+            initial={{ opacity: 0, scale: 0.85, y: 6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{ delay: i * 0.12, duration: 0.32, ease: "easeOut" }}
+            whileHover={{ scale: 1.04, y: -2 }}
+            onClick={() => onPick(s)}
+            title="Bấm để Kong đọc câu này — bạn lặp lại"
+            className={`${POSITIONS[i] ?? "absolute"} z-10 max-w-[180px] items-center gap-1.5 rounded-2xl border border-kong-glow/30 bg-space-800/85 px-3 py-1.5 text-left text-[11px] leading-snug text-kong-ink shadow-glow-emerald backdrop-blur-md transition hover:border-kong-glow/70 hover:bg-space-700/90 hover:shadow-glow-emerald-strong`}
+          >
+            <span className="text-kong-glow">🔊</span>{" "}
+            <span className="break-words">{s}</span>
+          </motion.button>
+        ))}
+    </AnimatePresence>
+  );
+}
 
 function RobotFace({ state }: { state: OrbState }) {
   // Chớp mắt định kỳ khi không nói (tăng cảm giác "sống")
@@ -1824,7 +1931,6 @@ function ChatHistory({
                     m={m}
                     isUser={isUser}
                     level={level}
-                    isLast={isLast}
                     onReplay={onReplay}
                   />
                 </motion.div>
@@ -1842,22 +1948,19 @@ function Bubble({
   m,
   isUser,
   level,
-  isLast,
   onReplay,
 }: {
   m: Message;
   isUser: boolean;
   level: Level;
-  isLast: boolean;
   onReplay: (text: string) => void;
 }) {
   const [showVi, setShowVi] = useState(false);
   const beginner = isBeginner(level);
   const showViAuto = !isUser && beginner && !!m.vietnamese;
   const canTranslate = !isUser && !beginner && !!m.vietnamese;
-  // Chips chỉ hiện cho TIN NHẮN MỚI NHẤT của Kong — gợi ý câu user nói tiếp.
-  const showSuggestions =
-    !isUser && isLast && !!m.suggestions && m.suggestions.length > 0;
+  // Gợi ý câu nói tiếp giờ hiển thị dạng floating bubbles quanh mascot
+  // (xem <FloatingSuggestions />), không còn inline trong bubble nữa.
 
   return (
     <div
@@ -1968,8 +2071,129 @@ function Bubble({
 }
 
 // ============================================================
+// PROGRESS PANEL — Left sidebar: level, streak, interests
+// ============================================================
+
+function ProgressPanel({ profile }: { profile: Profile }) {
+  const effectiveLevel = profile.manualLevel ?? profile.level;
+  return (
+    <div className="glass space-y-5 rounded-2xl p-4">
+      {/* Level */}
+      <section>
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-kong-inkSubtle">
+          Cấp độ hiện tại
+        </div>
+        <div className="flex items-end justify-between gap-2">
+          <div
+            className={`flex h-12 w-12 items-center justify-center rounded-xl border font-display text-lg font-semibold ${LEVEL_BADGE[effectiveLevel]}`}
+          >
+            {effectiveLevel}
+          </div>
+          <div className="text-right text-[11px] text-kong-inkMuted">
+            <div className="text-kong-inkSubtle">
+              {profile.manualLevel ? "Đã khoá" : "Tự ước lượng"}
+            </div>
+            <div className="text-kong-ink">
+              {profile.manualLevel ? "thủ công" : "(Auto)"}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Streak */}
+      <section>
+        <div className="mb-2 flex items-baseline justify-between text-[10px] font-semibold uppercase tracking-wider text-kong-inkSubtle">
+          <span>Chuỗi ngày học</span>
+          <span className="text-kong-inkMuted normal-case">
+            kỷ lục {profile.longestStreak}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 rounded-xl border border-kong-border bg-space-800/40 px-3 py-2.5">
+          <div className="text-3xl leading-none">🔥</div>
+          <div className="flex-1">
+            <div className="font-display text-2xl font-semibold leading-none text-kong-glow">
+              {profile.currentStreak}
+              <span className="ml-1 text-xs font-normal text-kong-inkMuted">
+                ngày
+              </span>
+            </div>
+            <div className="mt-1 text-[10px] text-kong-inkSubtle">
+              {profile.currentStreak === 0
+                ? "Hãy bắt đầu chuỗi đầu tiên"
+                : profile.lastActiveDate
+                  ? "Đã hoạt động hôm nay"
+                  : "Sẵn sàng"}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Interests */}
+      <section>
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-kong-inkSubtle">
+          Sở thích Kong đã ghi nhận
+        </div>
+        {profile.interests.length === 0 ? (
+          <div className="text-xs text-kong-inkMuted">
+            Kong sẽ tự ghi nhớ chủ đề bạn quan tâm khi trò chuyện.
+          </div>
+        ) : (
+          <ul className="flex flex-wrap gap-1.5">
+            {profile.interests.slice(0, 8).map((it, i) => (
+              <li
+                key={`${it}-${i}`}
+                className="rounded-full border border-kong-border bg-space-700/50 px-2.5 py-1 text-[11px] text-kong-ink"
+              >
+                {it}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ============================================================
 // WORD BANK SIDEBAR
 // ============================================================
+
+// Một thẻ từ vựng. Style "neumorphic": viền tối + inset highlight nhẹ,
+// hover thì border-glow Emerald. Icon 3D nhỏ phân biệt term.
+function WordBankCard({ word }: { word: WordBankItem }) {
+  return (
+    <motion.li
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      whileHover={{ y: -1 }}
+      transition={{ duration: 0.22 }}
+      className="group relative cursor-default rounded-xl border border-kong-border bg-space-800/60 p-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05),0_4px_12px_-6px_rgba(0,0,0,0.6)] transition hover:border-kong-glow/60 hover:shadow-glow-emerald"
+    >
+      <div className="flex items-start gap-2.5">
+        {/* Icon "3D" — gradient orb làm mark của từ */}
+        <div
+          aria-hidden
+          className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-kong-glow/30 to-kong-glow/0 ring-1 ring-inset ring-kong-glow/30 transition group-hover:from-kong-glow/50 group-hover:ring-kong-glow/60"
+        >
+          <span className="text-[10px] font-bold uppercase text-kong-glow">
+            {word.term.slice(0, 1)}
+          </span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-display text-sm font-semibold text-kong-ink transition group-hover:text-kong-glowSoft">
+            {word.term}
+          </div>
+          {word.vi && (
+            <div className="truncate text-xs italic text-kong-inkMuted">
+              {word.vi}
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.li>
+  );
+}
 
 function WordBank({
   profile,
@@ -1992,48 +2216,17 @@ function WordBank({
       </div>
 
       {recent.length === 0 ? (
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-kong-inkMuted">
           Từ vựng &ldquo;xịn&rdquo; sẽ tự xuất hiện ở đây khi bạn trò chuyện.
         </div>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col gap-2.5">
           <AnimatePresence initial={false}>
             {recent.map((w, i) => (
-              <motion.li
-                key={`${w.term}-${i}`}
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="rounded-lg border border-white/5 bg-black/30 p-2"
-              >
-                <div className="text-sm font-medium text-emerald-200">
-                  {w.term}
-                </div>
-                {w.vi && (
-                  <div className="text-xs italic text-slate-400">{w.vi}</div>
-                )}
-              </motion.li>
+              <WordBankCard key={`${w.term}-${i}`} word={w} />
             ))}
           </AnimatePresence>
         </ul>
-      )}
-
-      {profile.interests.length > 0 && (
-        <>
-          <div className="mb-2 mt-5 text-[10px] uppercase tracking-wider text-slate-500">
-            Sở thích đã ghi nhận
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {profile.interests.slice(-6).map((it, i) => (
-              <span
-                key={`${it}-${i}`}
-                className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-slate-300"
-              >
-                {it}
-              </span>
-            ))}
-          </div>
-        </>
       )}
 
       {(profile.wordBank.length > 0 || profile.interests.length > 0) && (
