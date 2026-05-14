@@ -23,15 +23,12 @@ import {
 type Level = "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
 type OrbState = "idle" | "listening" | "waiting" | "thinking" | "speaking";
 type InputLang = "en" | "vi";
+type ReplyLang = "en" | "vi";
 
 // Cấu hình cho Silence Timeout (debounce gửi câu hỏi tới Groq)
 const SILENCE_MS = 2500; // 2.5s im lặng → gửi buffer
 const GRACE_MS = 600; // 0.6s im lặng → bật indicator "đang chờ"
 const IDLE_TIMEOUT_MS = 30000; // 30s tuyệt không nghe thấy gì → tự dừng hội thoại
-// Smart Hint: nếu user kẹt giữa câu (>2s im lặng nhưng buffer chưa đủ để flush)
-// → gọi /api/hint. Đặt trước SILENCE_MS để hint kịp hiện trước khi flush.
-const HINT_DELAY_MS = 2000;
-const HINT_AUTO_DISMISS_MS = 8000; // hint tự ẩn sau 8s nếu user không tương tác
 
 type WordBankItem = { term: string; vi: string };
 
@@ -42,15 +39,22 @@ type Profile = {
   interests: string[];
   wordBank: WordBankItem[];
   inputLang: InputLang;
+  replyLang: ReplyLang; // ngôn ngữ Kong trả lời (en = dạy tiếng Anh, vi = chat tiếng Việt)
 };
 
 type BetterWay = { original: string; improved: string };
+type Correction = {
+  original: string;
+  corrected: string;
+  explanation: string;
+};
 
 type Message = {
   role: "user" | "assistant";
   content: string;
   vietnamese?: string;
   suggestion?: string;
+  correction?: Correction;
   betterWay?: BetterWay;
   suggestions?: string[]; // gợi ý câu user có thể nói tiếp (training wheels)
 };
@@ -76,6 +80,7 @@ const DEFAULT_PROFILE: Profile = {
   interests: [],
   wordBank: [],
   inputLang: "en",
+  replyLang: "en",
 };
 
 const LEVEL_BADGE: Record<Level, string> = {
@@ -115,7 +120,9 @@ function hasTTS(): boolean {
   );
 }
 
-function pickBestVoice(): SpeechSynthesisVoice | null {
+function pickBestVoice(
+  lang: ReplyLang = "en"
+): SpeechSynthesisVoice | null {
   if (!hasTTS()) return null;
   let voices: SpeechSynthesisVoice[] = [];
   try {
@@ -124,6 +131,17 @@ function pickBestVoice(): SpeechSynthesisVoice | null {
     return null;
   }
   if (!voices.length) return null;
+  if (lang === "vi") {
+    return (
+      voices.find(
+        (v) => v.lang === "vi-VN" && v.name.toLowerCase().includes("google")
+      ) ||
+      voices.find((v) => v.lang === "vi-VN") ||
+      voices.find((v) => v.lang.toLowerCase().startsWith("vi")) ||
+      voices[0] ||
+      null
+    );
+  }
   return (
     voices.find((v) => v.name === "Google US English") ||
     voices.find(
@@ -154,9 +172,6 @@ export default function Page() {
   const [interim, setInterim] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // ----- Smart Hint -----
-  const [smartHint, setSmartHint] = useState<string>("");
-
   // ----- Refs -----
   const isActiveRef = useRef(false);
   const historyRef = useRef<Message[]>([]);
@@ -165,9 +180,6 @@ export default function Page() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   // Timer flush buffer sau 2.5s im lặng — giữ ở ref để stopConversation có thể clear
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Cờ chống fetch hint trùng nhau / fetch khi đã có hint đang hiển thị.
-  const hintInflightRef = useRef(false);
-  const hintDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ----- Supabase client (browser) -----
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
@@ -201,6 +213,7 @@ export default function Page() {
           interests: stored.interests,
           wordBank: stored.wordBank,
           inputLang: stored.inputLang,
+          replyLang: stored.replyLang,
         };
         setProfile(next);
         profileRef.current = next;
@@ -218,6 +231,7 @@ export default function Page() {
               content: m.content,
               vietnamese: m.vietnamese,
               suggestion: m.suggestion,
+              correction: m.correction,
               betterWay: m.betterWay,
               suggestions: m.suggestions,
             }))
@@ -242,6 +256,7 @@ export default function Page() {
         manualLevel: profile.manualLevel,
         interests: profile.interests,
         inputLang: profile.inputLang,
+        replyLang: profile.replyLang,
         wordBank: profile.wordBank,
       });
     }, 600);
@@ -316,7 +331,6 @@ export default function Page() {
       let waitingTimer: ReturnType<typeof setTimeout> | null = null;
       let startAttempts = 0;
       let idleTimer: ReturnType<typeof setTimeout> | null = null;
-      let hintTimer: ReturnType<typeof setTimeout> | null = null;
 
       const clearTimers = () => {
         if (waitingTimer) {
@@ -330,44 +344,6 @@ export default function Page() {
         if (idleTimer) {
           clearTimeout(idleTimer);
           idleTimer = null;
-        }
-        if (hintTimer) {
-          clearTimeout(hintTimer);
-          hintTimer = null;
-        }
-      };
-
-      // Detect Vietnamese diacritics — dùng để fire hint NGAY khi user nói Việt
-      // trong EN mode (transcript có thể dính tiếng Việt khi user code-switch).
-      const VI_CHAR_RE =
-        /[àáảãạâấầẩẫậăắằẳẵặèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựýỳỷỹỵđÀÁẢÃẠÂẤẦẨẪẬĂẮẰẲẴẶÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰÝỲỶỸỴĐ]/;
-
-      const fetchHint = async (partial: string) => {
-        const txt = partial.trim();
-        if (!txt || hintInflightRef.current) return;
-        hintInflightRef.current = true;
-        try {
-          const res = await fetch("/api/hint", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: txt }),
-          });
-          if (!res.ok) return;
-          const data = (await res.json()) as { hint?: string };
-          const hint = (data.hint ?? "").trim();
-          if (!hint || resolved) return;
-          setSmartHint(hint);
-          if (hintDismissTimerRef.current) {
-            clearTimeout(hintDismissTimerRef.current);
-          }
-          hintDismissTimerRef.current = setTimeout(
-            () => setSmartHint(""),
-            HINT_AUTO_DISMISS_MS
-          );
-        } catch {
-          /* hint là nice-to-have, fail êm */
-        } finally {
-          hintInflightRef.current = false;
         }
       };
 
@@ -410,12 +386,6 @@ export default function Page() {
         setIsWaiting(false);
         setIsListening(false);
         setInterim("");
-        // Hint không còn liên quan khi đã flush
-        setSmartHint("");
-        if (hintDismissTimerRef.current) {
-          clearTimeout(hintDismissTimerRef.current);
-          hintDismissTimerRef.current = null;
-        }
         try {
           attached?.stop?.();
         } catch {
@@ -426,36 +396,17 @@ export default function Page() {
       };
 
       // Mỗi khi nghe thấy hoạt động giọng nói (final hoặc interim)
-      const onActivity = (latestInterim?: string) => {
+      const onActivity = (_latestInterim?: string) => {
         // Hiện tại có hoạt động → không "đang chờ" nữa
         setIsWaiting(false);
         clearTimers();
         // User vẫn còn nói → reset đồng hồ đếm 30s im lặng tuyệt đối.
         armIdleTimer();
 
-        // Khi có hoạt động mới, hint cũ không còn liên quan.
-        setSmartHint("");
-        if (hintDismissTimerRef.current) {
-          clearTimeout(hintDismissTimerRef.current);
-          hintDismissTimerRef.current = null;
-        }
-
         // Sau GRACE_MS không nghe gì thêm → bật indicator "đang chờ" nếu buffer có nội dung
         waitingTimer = setTimeout(() => {
           if (buffer.trim().length > 0) setIsWaiting(true);
         }, GRACE_MS);
-
-        // Smart Hint: nếu user kẹt (im lặng ~2s với buffer có nội dung) → fetch gợi ý.
-        // Dùng cả buffer (đoạn final) lẫn interim mới nhất để LLM có context tối đa.
-        const hintInputBase = (
-          buffer +
-          (latestInterim ? " " + latestInterim : "")
-        ).trim();
-        if (hintInputBase.length >= 4) {
-          hintTimer = setTimeout(() => {
-            void fetchHint(hintInputBase);
-          }, HINT_DELAY_MS);
-        }
 
         // Sau SILENCE_MS không nghe gì thêm → flush buffer (chỉ khi có nội dung)
         flushTimerRef.current = setTimeout(() => {
@@ -466,14 +417,6 @@ export default function Page() {
             setIsWaiting(false);
           }
         }, SILENCE_MS);
-
-        // Trigger nhanh: nếu interim/final dính ký tự tiếng Việt rõ rệt → fetch hint
-        // ngay (không đợi 2s). User code-switch là dấu hiệu chắc chắn họ đang kẹt.
-        const fullText =
-          buffer + (latestInterim ? " " + latestInterim : "");
-        if (VI_CHAR_RE.test(fullText) && hintInputBase.length >= 2) {
-          void fetchHint(hintInputBase);
-        }
       };
 
       const start = () => {
@@ -599,13 +542,15 @@ export default function Page() {
         /* noop */
       }
 
-      // Mobile có thể chưa nạp voices ở mount → thử lại lần nữa.
-      if (!voiceRef.current) voiceRef.current = pickBestVoice();
+      // Chọn voice theo replyLang hiện tại — mỗi turn user có thể đã đổi mode.
+      const replyLang = profileRef.current.replyLang;
+      const voice = pickBestVoice(replyLang) || voiceRef.current;
+      if (voice) voiceRef.current = voice;
 
       const u = new SpeechSynthesisUtterance(text);
       // Chỉ gán voice nếu thực sự có. iOS Safari đôi khi câm khi voice = null.
-      if (voiceRef.current) u.voice = voiceRef.current;
-      u.lang = "en-US";
+      if (voice) u.voice = voice;
+      u.lang = replyLang === "vi" ? "vi-VN" : "en-US";
       u.rate = 1;
       u.pitch = 1;
       u.volume = 1;
@@ -673,6 +618,7 @@ export default function Page() {
       reply: string;
       vietnamese: string;
       suggestion: string;
+      correction: Correction;
       betterWay: BetterWay;
       suggestions: string[];
     } | null> => {
@@ -697,6 +643,7 @@ export default function Page() {
             levelLocked: profileRef.current.manualLevel !== null,
           },
           inputLang: profileRef.current.inputLang,
+          replyLang: profileRef.current.replyLang,
         }),
       });
 
@@ -710,6 +657,7 @@ export default function Page() {
         userLevel?: Level;
         vietnamese?: string;
         suggestion?: string;
+        correction?: Correction;
         betterWay?: BetterWay;
         vocabulary?: WordBankItem[];
         interests?: string[];
@@ -724,6 +672,18 @@ export default function Page() {
         bw && typeof bw.original === "string" && typeof bw.improved === "string"
           ? { original: bw.original.trim(), improved: bw.improved.trim() }
           : { original: "", improved: "" };
+      const cr = data.correction;
+      const correction: Correction =
+        cr &&
+        typeof cr.original === "string" &&
+        typeof cr.corrected === "string" &&
+        typeof cr.explanation === "string"
+          ? {
+              original: cr.original.trim(),
+              corrected: cr.corrected.trim(),
+              explanation: cr.explanation.trim(),
+            }
+          : { original: "", corrected: "", explanation: "" };
       const suggestions: string[] = Array.isArray(data.suggestions)
         ? data.suggestions
             .map((s) => (typeof s === "string" ? s.trim() : ""))
@@ -755,7 +715,7 @@ export default function Page() {
         ),
       }));
 
-      return { reply, vietnamese, suggestion, betterWay, suggestions };
+      return { reply, vietnamese, suggestion, correction, betterWay, suggestions };
     },
     []
   );
@@ -772,6 +732,7 @@ export default function Page() {
         content: msg.content,
         vietnamese: msg.vietnamese,
         suggestion: msg.suggestion,
+        correction: msg.correction,
         betterWay: msg.betterWay,
         suggestions: msg.suggestions,
       });
@@ -794,6 +755,7 @@ export default function Page() {
             content: greeting.reply,
             vietnamese: greeting.vietnamese,
             suggestion: greeting.suggestion,
+            correction: greeting.correction,
             betterWay: greeting.betterWay,
             suggestions: greeting.suggestions,
           };
@@ -829,6 +791,7 @@ export default function Page() {
           content: result.reply,
           vietnamese: result.vietnamese,
           suggestion: result.suggestion,
+          correction: result.correction,
           betterWay: result.betterWay,
           suggestions: result.suggestions,
         };
@@ -948,6 +911,14 @@ export default function Page() {
     }
   }, []);
 
+  // ----- Toggle ngôn ngữ Kong trả lời (EN dạy tiếng Anh ↔ VI trò chuyện) -----
+  const toggleReplyLang = useCallback(() => {
+    setProfile((p) => ({
+      ...p,
+      replyLang: p.replyLang === "vi" ? "en" : "vi",
+    }));
+  }, []);
+
   // ----- Manual level picker -----
   const setManualLevel = useCallback((lvl: Level | null) => {
     setProfile((p) => ({ ...p, manualLevel: lvl }));
@@ -1004,6 +975,10 @@ export default function Page() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <ReplyLangPicker
+                lang={profile.replyLang}
+                onToggle={toggleReplyLang}
+              />
               <LangToggle lang={profile.inputLang} onToggle={toggleInputLang} />
               <LevelPicker
                 effectiveLevel={profile.manualLevel ?? profile.level}
@@ -1061,9 +1036,6 @@ export default function Page() {
               <span className="text-slate-300">Kong đang nói…</span>
             )}
           </div>
-
-          {/* Smart Hint — bubble nhỏ dưới caption, tự ẩn sau ~8s */}
-          <SmartHintBubble hint={smartHint} onDismiss={() => setSmartHint("")} />
 
           {/* Controls */}
           <div className="flex flex-wrap items-center justify-center gap-3">
@@ -1201,49 +1173,45 @@ function LangToggle({
           : "border-sky-400/40 bg-sky-500/15 text-sky-200 hover:bg-sky-500/25"
       }`}
     >
+      <span className="text-[9px] uppercase opacity-70">Mic</span>
       <span className="text-base leading-none">{isVi ? "🇻🇳" : "🇺🇸"}</span>
       <span>{isVi ? "VI" : "EN"}</span>
     </button>
   );
 }
 
-// ============================================================
-// SMART HINT BUBBLE — gợi ý từ vựng nhỏ khi user kẹt giữa câu
-// (text-only, không phát âm). Tự ẩn sau ~8s; user có thể bấm × để đóng.
-// ============================================================
-
-function SmartHintBubble({
-  hint,
-  onDismiss,
+// Reply-language picker — chọn Kong sẽ trả lời bằng tiếng Anh (chế độ dạy)
+// hay tiếng Việt (chế độ trò chuyện). Tách biệt với LangToggle vì 2 thứ này
+// độc lập: user có thể nói tiếng Việt nhưng vẫn muốn Kong trả lời tiếng Anh
+// để luyện nghe, hoặc ngược lại.
+function ReplyLangPicker({
+  lang,
+  onToggle,
 }: {
-  hint: string;
-  onDismiss: () => void;
+  lang: ReplyLang;
+  onToggle: () => void;
 }) {
+  const isVi = lang === "vi";
   return (
-    <AnimatePresence>
-      {hint && (
-        <motion.div
-          initial={{ opacity: 0, y: -4, scale: 0.96 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -4, scale: 0.96 }}
-          transition={{ duration: 0.18 }}
-          className="flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-100 shadow-md backdrop-blur-sm"
-        >
-          <span>💡</span>
-          <span className="italic">{hint}</span>
-          <button
-            onClick={onDismiss}
-            aria-label="Đóng gợi ý"
-            className="ml-1 rounded-full px-1 text-amber-200/70 transition hover:bg-amber-400/20 hover:text-amber-100"
-          >
-            ×
-          </button>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <button
+      onClick={onToggle}
+      title={
+        isVi
+          ? "Kong đang trả lời bằng tiếng Việt — bấm để Kong dạy tiếng Anh"
+          : "Kong đang dạy tiếng Anh — bấm để chuyển sang trò chuyện tiếng Việt"
+      }
+      className={`group flex select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-wider transition ${
+        isVi
+          ? "border-amber-400/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25"
+          : "border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"
+      }`}
+    >
+      <span className="text-[9px] uppercase opacity-70">Kong</span>
+      <span className="text-base leading-none">💬</span>
+      <span>{isVi ? "VI" : "EN"}</span>
+    </button>
   );
 }
-
 
 // ============================================================
 // ROBOT FACE — đầu robot trắng + tai mèo + mắt LED + miệng động
@@ -1654,6 +1622,29 @@ function Bubble({
           <span className="italic">{m.suggestion}</span>
         </div>
       )}
+
+      {/* Correction — sửa lỗi ngữ pháp / từ vựng cho câu user vừa nói */}
+      {!isUser &&
+        m.correction?.original &&
+        m.correction?.corrected &&
+        m.correction.original !== m.correction.corrected && (
+          <div className="mt-2 rounded-lg border border-rose-400/30 bg-rose-500/10 p-2.5 text-[11px] leading-relaxed">
+            <div className="mb-1 font-semibold uppercase tracking-wider text-rose-200/90">
+              ✏️ Câu đúng
+            </div>
+            <div className="text-slate-300/80 line-through decoration-rose-300/40">
+              {m.correction.original}
+            </div>
+            <div className="mt-0.5 text-rose-50">
+              → {m.correction.corrected}
+            </div>
+            {m.correction.explanation && (
+              <div className="mt-1 text-[10px] italic text-rose-200/80">
+                {m.correction.explanation}
+              </div>
+            )}
+          </div>
+        )}
 
       {/* "Better way to say it" — paraphrase tự nhiên hơn cho 1 câu user vừa nói */}
       {!isUser && m.betterWay?.original && m.betterWay?.improved && (

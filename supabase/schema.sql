@@ -95,6 +95,21 @@ create policy messages_self_delete on public.messages
   for delete using (auth.uid() = user_id);
 
 -- ============================================================
+-- MIGRATIONS — safe to re-run, additive only.
+-- ============================================================
+
+-- Reply-language picker: 'en' (English tutoring) or 'vi' (Vietnamese chat).
+alter table public.profiles
+  add column if not exists reply_lang text not null default 'en'
+  check (reply_lang in ('en', 'vi'));
+
+-- Per-message correction analysis (replaces the standalone Smart Hint).
+-- Shape: { original, corrected, explanation }. Empty strings = no fix needed.
+alter table public.messages
+  add column if not exists correction jsonb not null
+  default '{"original":"","corrected":"","explanation":""}'::jsonb;
+
+-- ============================================================
 -- ADMIN BOOTSTRAP — run ONCE after the schema above, then delete.
 -- 1) Replace the placeholders below with your chosen credentials.
 -- 2) In Supabase Dashboard → Authentication → Users → Add user:

@@ -7,9 +7,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const ALL_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
 export type Level = (typeof ALL_LEVELS)[number];
 export type InputLang = "en" | "vi";
+export type ReplyLang = "en" | "vi";
 
 export type WordBankItem = { term: string; vi: string };
 export type BetterWay = { original: string; improved: string };
+export type Correction = {
+  original: string;
+  corrected: string;
+  explanation: string;
+};
 
 export type StoredProfile = {
   userId: string;
@@ -20,6 +26,7 @@ export type StoredProfile = {
   manualLevel: Level | null;
   interests: string[];
   inputLang: InputLang;
+  replyLang: ReplyLang;
   wordBank: WordBankItem[];
 };
 
@@ -29,6 +36,7 @@ export type StoredMessage = {
   content: string;
   vietnamese?: string;
   suggestion?: string;
+  correction?: Correction;
   betterWay?: BetterWay;
   suggestions?: string[];
 };
@@ -66,7 +74,7 @@ export async function loadProfile(
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "user_id, username, display_name, role, level, manual_level, interests, input_lang, word_bank"
+      "user_id, username, display_name, role, level, manual_level, interests, input_lang, reply_lang, word_bank"
     )
     .eq("user_id", user.id)
     .single();
@@ -81,6 +89,7 @@ export async function loadProfile(
     manualLevel: isLevel(data.manual_level) ? data.manual_level : null,
     interests: asStringArray(data.interests),
     inputLang: data.input_lang === "vi" ? "vi" : "en",
+    replyLang: data.reply_lang === "vi" ? "vi" : "en",
     wordBank: asWordBank(data.word_bank),
   };
 }
@@ -97,6 +106,7 @@ export async function saveProfile(
       | "manualLevel"
       | "interests"
       | "inputLang"
+      | "replyLang"
       | "wordBank"
     >
   >
@@ -107,6 +117,7 @@ export async function saveProfile(
   if (patch.manualLevel !== undefined) row.manual_level = patch.manualLevel;
   if (patch.interests !== undefined) row.interests = patch.interests;
   if (patch.inputLang !== undefined) row.input_lang = patch.inputLang;
+  if (patch.replyLang !== undefined) row.reply_lang = patch.replyLang;
   if (patch.wordBank !== undefined) row.word_bank = patch.wordBank;
   if (Object.keys(row).length === 0) return;
 
@@ -121,7 +132,7 @@ export async function loadRecentMessages(
   const { data, error } = await supabase
     .from("messages")
     .select(
-      "id, role, content, vietnamese, suggestion, better_way_original, better_way_improved, suggestions"
+      "id, role, content, vietnamese, suggestion, correction, better_way_original, better_way_improved, suggestions"
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
@@ -129,18 +140,26 @@ export async function loadRecentMessages(
   if (error || !data) return [];
 
   return data
-    .map((r: any): StoredMessage => ({
-      id: r.id,
-      role: r.role === "assistant" ? "assistant" : "user",
-      content: r.content ?? "",
-      vietnamese: r.vietnamese ?? "",
-      suggestion: r.suggestion ?? "",
-      betterWay: {
-        original: r.better_way_original ?? "",
-        improved: r.better_way_improved ?? "",
-      },
-      suggestions: Array.isArray(r.suggestions) ? r.suggestions : [],
-    }))
+    .map((r: any): StoredMessage => {
+      const c = r.correction && typeof r.correction === "object" ? r.correction : {};
+      return {
+        id: r.id,
+        role: r.role === "assistant" ? "assistant" : "user",
+        content: r.content ?? "",
+        vietnamese: r.vietnamese ?? "",
+        suggestion: r.suggestion ?? "",
+        correction: {
+          original: typeof c.original === "string" ? c.original : "",
+          corrected: typeof c.corrected === "string" ? c.corrected : "",
+          explanation: typeof c.explanation === "string" ? c.explanation : "",
+        },
+        betterWay: {
+          original: r.better_way_original ?? "",
+          improved: r.better_way_improved ?? "",
+        },
+        suggestions: Array.isArray(r.suggestions) ? r.suggestions : [],
+      };
+    })
     .reverse();
 }
 
@@ -156,6 +175,11 @@ export async function insertMessage(
     content: msg.content,
     vietnamese: msg.vietnamese ?? "",
     suggestion: msg.suggestion ?? "",
+    correction: msg.correction ?? {
+      original: "",
+      corrected: "",
+      explanation: "",
+    },
     better_way_original: msg.betterWay?.original ?? "",
     better_way_improved: msg.betterWay?.improved ?? "",
     suggestions: msg.suggestions ?? [],
