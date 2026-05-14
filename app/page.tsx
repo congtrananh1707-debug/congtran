@@ -269,7 +269,9 @@ export default function Page() {
         });
 
         const msgs = await loadRecentMessages(supabase, stored.userId);
-        if (!cancelled && msgs.length > 0) {
+        if (cancelled) return;
+
+        if (msgs.length > 0) {
           setHistory(
             msgs.map((m) => ({
               role: m.role,
@@ -281,13 +283,51 @@ export default function Page() {
               suggestions: m.suggestions,
             }))
           );
+          hydratedRef.current = true;
+          return;
         }
+
+        hydratedRef.current = true;
+
+        // Conversation rỗng + Text mode → Kong chủ động chào để bắt chuyện.
+        // Voice mode đã có greeting trong runLoop khi user bấm Start, nên
+        // ở đây chỉ xử lý Text mode. KHÔNG TTS vì trình duyệt chặn autoplay
+        // audio khi chưa có user gesture; user có thể bấm 🔊 trên message
+        // để nghe lại nếu muốn.
+        if (next.interactionMode === "text") {
+          try {
+            setIsThinking(true);
+            const greeting = await askLLM("[start]");
+            if (cancelled) return;
+            setIsThinking(false);
+            if (greeting?.reply) {
+              const greetingMsg: Message = {
+                role: "assistant",
+                content: greeting.reply,
+                vietnamese: greeting.vietnamese,
+                suggestion: greeting.suggestion,
+                correction: greeting.correction,
+                betterWay: greeting.betterWay,
+                suggestions: greeting.suggestions,
+              };
+              setHistory((h) => [...h, greetingMsg]);
+              persistMessage(greetingMsg);
+            }
+          } catch {
+            setIsThinking(false);
+            // Greeting fail — bỏ qua, không break UX.
+          }
+        }
+      } else {
+        hydratedRef.current = true;
       }
-      hydratedRef.current = true;
     })();
     return () => {
       cancelled = true;
     };
+    // askLLM / persistMessage được wrap bằng useCallback với deps ổn định
+    // (gần như không đổi giữa các render), nên effect này chạy 1 lần khi mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase]);
 
   // ----- Persist profile + sync ref (debounced upsert vào DB) -----
@@ -1160,8 +1200,12 @@ export default function Page() {
 
         {/* CENTER — Chat */}
         <main className="order-1 flex min-w-0 flex-col items-center gap-4 lg:order-2">
-          {/* Header */}
-          <div className="glass flex w-full items-start justify-between gap-3 rounded-2xl px-4 py-3">
+          {/* Header — relative + z-30 để dropdown của Settings (z-100 trong
+              local stacking context) hiển thị TRÊN khu vực mascot/chat ở
+              dưới. Mascot dùng Framer transform → tạo stacking context
+              riêng; nếu header không có z-index dương, mascot sẽ phủ
+              dropdown khi popover thả xuống. */}
+          <div className="glass relative z-30 flex w-full items-start justify-between gap-3 rounded-2xl px-4 py-3">
             <div>
               <h1 className="font-display text-xl font-semibold tracking-tight text-kong-ink md:text-2xl">
                 Kong
