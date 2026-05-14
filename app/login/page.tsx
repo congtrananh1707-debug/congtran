@@ -94,8 +94,11 @@ function LoginForm() {
             autoFocus
             spellCheck={false}
             className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-slate-100 outline-none focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/20"
-            placeholder="username"
+            placeholder="vd: admin"
           />
+          <span className="block text-xs text-slate-500">
+            Chỉ nhập username, không có @kong.local.
+          </span>
         </label>
 
         <label className="block space-y-1.5">

@@ -3,10 +3,18 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { createSupabaseBrowserClient } from "../lib/supabase/client";
+import {
+  insertMessage,
+  loadProfile as loadProfileFromDB,
+  loadRecentMessages,
+  saveProfile as saveProfileToDB,
+} from "../lib/supabase/db";
 
 // ============================================================
 // TYPES
@@ -58,7 +66,6 @@ declare global {
 // CONSTANTS
 // ============================================================
 
-const PROFILE_KEY = "elara_profile_v1";
 const ALL_LEVELS: Level[] = ["A1", "A2", "B1", "B2", "C1", "C2"];
 const MAX_WORDBANK = 12;
 
@@ -81,47 +88,6 @@ const LEVEL_BADGE: Record<Level, string> = {
 };
 
 const isBeginner = (l: Level) => l === "A1" || l === "A2";
-
-// ============================================================
-// PROFILE PERSISTENCE (LocalStorage)
-// ============================================================
-
-function loadProfile(): Profile {
-  if (typeof window === "undefined") return DEFAULT_PROFILE;
-  try {
-    const raw = window.localStorage.getItem(PROFILE_KEY);
-    if (!raw) return DEFAULT_PROFILE;
-    const p = JSON.parse(raw);
-    return {
-      name: typeof p.name === "string" ? p.name : "",
-      level: ALL_LEVELS.includes(p.level) ? p.level : "A2",
-      manualLevel: ALL_LEVELS.includes(p.manualLevel) ? p.manualLevel : null,
-      interests: Array.isArray(p.interests)
-        ? p.interests.filter((s: any) => typeof s === "string")
-        : [],
-      wordBank: Array.isArray(p.wordBank)
-        ? p.wordBank
-            .filter((w: any) => w && typeof w.term === "string")
-            .map((w: any) => ({
-              term: String(w.term),
-              vi: typeof w.vi === "string" ? w.vi : "",
-            }))
-        : [],
-      inputLang: p.inputLang === "vi" ? "vi" : "en",
-    };
-  } catch {
-    return DEFAULT_PROFILE;
-  }
-}
-
-function saveProfile(p: Profile) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
-  } catch {
-    /* quota / private mode — bỏ qua */
-  }
-}
 
 // Gộp danh sách giữ thứ tự cũ→mới, dedupe theo key (case-insensitive), giới hạn `max`.
 function mergeUnique<T>(
@@ -203,18 +169,84 @@ export default function Page() {
   const hintInflightRef = useRef(false);
   const hintDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ----- Hydrate profile from localStorage on mount -----
-  useEffect(() => {
-    const loaded = loadProfile();
-    setProfile(loaded);
-    profileRef.current = loaded;
-  }, []);
+  // ----- Supabase client (browser) -----
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
-  // ----- Persist profile + sync ref -----
+  // ----- Phiên hiện tại (auth) — phục vụ sign-out, link admin, lưu message -----
+  const [sessionUser, setSessionUser] = useState<{
+    userId: string;
+    username: string;
+    role: "user" | "admin";
+  } | null>(null);
+  const sessionRef = useRef<typeof sessionUser>(null);
+  useEffect(() => {
+    sessionRef.current = sessionUser;
+  }, [sessionUser]);
+
+  // Cờ "đã nạp xong từ DB" — chặn save khi state mặc định vừa khởi tạo
+  // (tránh ghi đè dữ liệu DB bằng DEFAULT_PROFILE trước khi load xong).
+  const hydratedRef = useRef(false);
+
+  // ----- Hydrate profile + history từ Supabase khi mount -----
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const stored = await loadProfileFromDB(supabase);
+      if (cancelled) return;
+      if (stored) {
+        const next: Profile = {
+          name: stored.displayName,
+          level: stored.level,
+          manualLevel: stored.manualLevel,
+          interests: stored.interests,
+          wordBank: stored.wordBank,
+          inputLang: stored.inputLang,
+        };
+        setProfile(next);
+        profileRef.current = next;
+        setSessionUser({
+          userId: stored.userId,
+          username: stored.username,
+          role: stored.role,
+        });
+
+        const msgs = await loadRecentMessages(supabase, stored.userId);
+        if (!cancelled && msgs.length > 0) {
+          setHistory(
+            msgs.map((m) => ({
+              role: m.role,
+              content: m.content,
+              vietnamese: m.vietnamese,
+              suggestion: m.suggestion,
+              betterWay: m.betterWay,
+              suggestions: m.suggestions,
+            }))
+          );
+        }
+      }
+      hydratedRef.current = true;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
+  // ----- Persist profile + sync ref (debounced upsert vào DB) -----
   useEffect(() => {
     profileRef.current = profile;
-    saveProfile(profile);
-  }, [profile]);
+    if (!hydratedRef.current || !sessionUser) return;
+    const t = setTimeout(() => {
+      void saveProfileToDB(supabase, sessionUser.userId, {
+        displayName: profile.name,
+        level: profile.level,
+        manualLevel: profile.manualLevel,
+        interests: profile.interests,
+        inputLang: profile.inputLang,
+        wordBank: profile.wordBank,
+      });
+    }, 600);
+    return () => clearTimeout(t);
+  }, [profile, sessionUser, supabase]);
 
   // ----- Sync refs với state để vòng lặp async đọc đúng giá trị -----
   useEffect(() => {
@@ -728,6 +760,25 @@ export default function Page() {
     []
   );
 
+  // Lưu 1 message vào DB (fire-and-forget). Bỏ qua nếu chưa có session
+  // hoặc nội dung rỗng / là sentinel [start].
+  const persistMessage = useCallback(
+    (msg: Message) => {
+      const uid = sessionRef.current?.userId;
+      if (!uid) return;
+      if (!msg.content.trim() || msg.content === "[start]") return;
+      void insertMessage(supabase, uid, {
+        role: msg.role,
+        content: msg.content,
+        vietnamese: msg.vietnamese,
+        suggestion: msg.suggestion,
+        betterWay: msg.betterWay,
+        suggestions: msg.suggestions,
+      });
+    },
+    [supabase]
+  );
+
   // ----- Vòng lặp: Nghe → Groq → Nói → Nghe lại -----
   const runLoop = useCallback(async () => {
     // Auto-greeting: nếu mới Start (history rỗng), Kong chào trước để người mới
@@ -738,17 +789,16 @@ export default function Page() {
         const greeting = await askLLM("[start]");
         setIsThinking(false);
         if (isActiveRef.current && greeting?.reply) {
-          setHistory((h) => [
-            ...h,
-            {
-              role: "assistant",
-              content: greeting.reply,
-              vietnamese: greeting.vietnamese,
-              suggestion: greeting.suggestion,
-              betterWay: greeting.betterWay,
-              suggestions: greeting.suggestions,
-            },
-          ]);
+          const greetingMsg: Message = {
+            role: "assistant",
+            content: greeting.reply,
+            vietnamese: greeting.vietnamese,
+            suggestion: greeting.suggestion,
+            betterWay: greeting.betterWay,
+            suggestions: greeting.suggestions,
+          };
+          setHistory((h) => [...h, greetingMsg]);
+          persistMessage(greetingMsg);
           await speak(greeting.reply);
           await new Promise((r) => setTimeout(r, 250));
         }
@@ -764,7 +814,9 @@ export default function Page() {
         if (!isActiveRef.current) break;
         if (!userText) continue;
 
-        setHistory((h) => [...h, { role: "user", content: userText }]);
+        const userMsg: Message = { role: "user", content: userText };
+        setHistory((h) => [...h, userMsg]);
+        persistMessage(userMsg);
 
         setIsThinking(true);
         const result = await askLLM(userText);
@@ -772,17 +824,16 @@ export default function Page() {
         if (!isActiveRef.current) break;
         if (!result || !result.reply) continue;
 
-        setHistory((h) => [
-          ...h,
-          {
-            role: "assistant",
-            content: result.reply,
-            vietnamese: result.vietnamese,
-            suggestion: result.suggestion,
-            betterWay: result.betterWay,
-            suggestions: result.suggestions,
-          },
-        ]);
+        const replyMsg: Message = {
+          role: "assistant",
+          content: result.reply,
+          vietnamese: result.vietnamese,
+          suggestion: result.suggestion,
+          betterWay: result.betterWay,
+          suggestions: result.suggestions,
+        };
+        setHistory((h) => [...h, replyMsg]);
+        persistMessage(replyMsg);
         await speak(result.reply);
         // Mobile (đặc biệt Android Chrome) cần một nhịp để giải phóng audio
         // session sau khi loa vừa phát; không có gap này, recognition.start()
@@ -795,7 +846,7 @@ export default function Page() {
         await new Promise((r) => setTimeout(r, 800));
       }
     }
-  }, [listenOnce, askLLM, speak]);
+  }, [listenOnce, askLLM, speak, persistMessage]);
 
   const startConversation = useCallback(() => {
     setError(null);
@@ -944,6 +995,12 @@ export default function Page() {
               </h1>
               <p className="text-xs text-slate-400 md:text-sm">
                 Empathetic English tutor • Hands-free
+                {sessionUser ? (
+                  <>
+                    {" • "}
+                    <span className="text-slate-300">@{sessionUser.username}</span>
+                  </>
+                ) : null}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -954,6 +1011,22 @@ export default function Page() {
                 autoLevel={profile.level}
                 onChange={setManualLevel}
               />
+              {sessionUser?.role === "admin" && (
+                <a
+                  href="/admin"
+                  className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 transition hover:border-cyan-400/60 hover:text-cyan-300"
+                >
+                  Admin
+                </a>
+              )}
+              <form action="/api/auth/signout" method="post">
+                <button
+                  type="submit"
+                  className="rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-rose-400/60 hover:text-rose-300"
+                >
+                  Đăng xuất
+                </button>
+              </form>
             </div>
           </div>
 

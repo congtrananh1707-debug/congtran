@@ -8,7 +8,11 @@ export const USERNAME_EMAIL_DOMAIN =
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,31}$/;
 
 export function normalizeUsername(raw: string): string {
-  return raw.trim().toLowerCase();
+  let v = raw.trim().toLowerCase();
+  // Nếu user paste cả "<user>@<USERNAME_EMAIL_DOMAIN>" thì cắt phần đuôi.
+  const suffix = "@" + USERNAME_EMAIL_DOMAIN.toLowerCase();
+  if (v.endsWith(suffix)) v = v.slice(0, -suffix.length);
+  return v;
 }
 
 export function isValidUsername(raw: string): boolean {
