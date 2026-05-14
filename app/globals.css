@@ -8,14 +8,109 @@ body {
 }
 
 body {
-  background: #020617;
-  color: #f1f5f9;
+  /* Deep Space Blue — primary canvas under the gradient mesh. */
+  background-color: #0b0e14;
+  color: #f8fafc;
   -webkit-font-smoothing: antialiased;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  text-rendering: optimizeLegibility;
 }
 
-/* Ẩn scrollbar nhưng vẫn cuộn được — cho khu vực lịch sử chat */
+/* ------------------------------------------------------------------
+   Animated gradient mesh background — sits below all content, drifts
+   slowly. Pure CSS, GPU-friendly. The mesh image itself is defined in
+   tailwind.config.js → bg-mesh-emerald.
+   ------------------------------------------------------------------ */
+.bg-mesh {
+  position: fixed;
+  inset: -10%;
+  z-index: -1;
+  background-image:
+    radial-gradient(at 18% 12%, rgba(80, 250, 123, 0.18) 0px, transparent 45%),
+    radial-gradient(at 82% 28%, rgba(96, 165, 250, 0.16) 0px, transparent 50%),
+    radial-gradient(at 32% 88%, rgba(167, 139, 250, 0.14) 0px, transparent 50%),
+    radial-gradient(at 78% 78%, rgba(80, 250, 123, 0.12) 0px, transparent 50%);
+  background-color: #0b0e14;
+  animation: mesh-drift 24s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes mesh-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-2%, 1.5%, 0) scale(1.08);
+  }
+}
+
+/* Glassmorphism container — kính mờ với viền sáng nhẹ. */
+@layer components {
+  .glass {
+    background-color: rgba(15, 19, 32, 0.55);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+      0 8px 32px 0 rgba(2, 6, 23, 0.45),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .glass-strong {
+    background-color: rgba(11, 14, 20, 0.7);
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+      0 12px 40px 0 rgba(2, 6, 23, 0.55),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* ------------------------------------------------------------------
+   Kong mascot — float + LED eye blink. Áp dụng vào wrapper SVG.
+   ------------------------------------------------------------------ */
+.kong-mascot {
+  animation: kong-float 6s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes kong-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* LED eye glow nhịp nhàng — chỉ active ở state idle/listening. */
+.kong-led-pulse {
+  animation: led-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes led-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 6px rgba(80, 250, 123, 0.6));
+  }
+  50% {
+    opacity: 0.72;
+    filter: drop-shadow(0 0 10px rgba(80, 250, 123, 0.9));
+  }
+}
+
+/* Scrollbar mỏng cho khu chat. */
 .scroll-soft::-webkit-scrollbar {
-  width: 0;
+  width: 6px;
   background: transparent;
+}
+.scroll-soft::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+.scroll-soft::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.16);
 }

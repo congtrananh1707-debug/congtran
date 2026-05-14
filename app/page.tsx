@@ -1056,18 +1056,18 @@ export default function Page() {
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black text-slate-100">
+    <div className="min-h-screen text-kong-ink">
       <div className="mx-auto grid w-full max-w-6xl gap-6 p-4 md:p-6 lg:grid-cols-[1fr_320px]">
         {/* MAIN */}
         <main className="flex flex-col items-center gap-4">
           {/* Header */}
-          <div className="flex w-full items-start justify-between gap-3">
+          <div className="glass flex w-full items-start justify-between gap-3 rounded-2xl px-4 py-3">
             <div>
-              <h1 className="text-xl font-semibold tracking-tight md:text-2xl">
+              <h1 className="font-display text-xl font-semibold tracking-tight text-kong-ink md:text-2xl">
                 Kong
               </h1>
-              <p className="text-xs text-slate-400 md:text-sm">
-                Empathetic English tutor • Hands-free
+              <p className="text-xs text-kong-inkMuted md:text-sm">
+                AI English Tutor
                 {sessionUser ? (
                   <>
                     {" • "}
@@ -1226,14 +1226,14 @@ export default function Page() {
               {!isActive ? (
                 <button
                   onClick={startConversation}
-                  className="rounded-full bg-emerald-500 px-7 py-2.5 font-medium text-black shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+                  className="rounded-full bg-kong-glow px-7 py-2.5 font-display font-medium text-space-900 shadow-glow-emerald transition hover:bg-kong-glowSoft hover:shadow-glow-emerald-strong"
                 >
                   Start
                 </button>
               ) : (
                 <button
                   onClick={stopConversation}
-                  className="rounded-full bg-rose-500 px-7 py-2.5 font-medium text-black shadow-lg shadow-rose-500/30 transition hover:bg-rose-400"
+                  className="rounded-full bg-rose-500 px-7 py-2.5 font-display font-medium text-space-900 shadow-lg shadow-rose-500/30 transition hover:bg-rose-400"
                 >
                   Stop
                 </button>
@@ -1798,7 +1798,7 @@ function ChatHistory({
       role="log"
       aria-live="polite"
       aria-label="Lịch sử hội thoại"
-      className="scroll-soft h-[400px] overflow-y-auto rounded-2xl border border-white/5 bg-black/30 p-3 backdrop-blur-sm"
+      className="glass scroll-soft h-[400px] overflow-y-auto rounded-2xl p-3"
     >
       {history.length === 0 ? (
         <div className="flex h-full items-center justify-center text-sm text-slate-500">
@@ -1963,30 +1963,6 @@ function Bubble({
         </div>
       )}
 
-      {/* Training wheels: gợi ý 2-3 câu user có thể nói tiếp.
-          Bấm chip → Kong đọc lại cho nghe → user lặp lại để nói. */}
-      {showSuggestions && (
-        <div className="mt-2.5 border-t border-white/5 pt-2">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-200/80">
-            💬 Try saying
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {m.suggestions!.map((s, i) => (
-              <button
-                key={`sg-${i}`}
-                onClick={() => onReplay(s)}
-                title="Nghe Kong đọc câu này — bạn lặp lại"
-                className="group flex items-center gap-1.5 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] text-cyan-50 transition hover:bg-cyan-500/20"
-              >
-                <span className="text-cyan-300/80 group-hover:text-cyan-200">
-                  🔊
-                </span>
-                <span>{s}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -2005,9 +1981,9 @@ function WordBank({
   // Hiện 5 từ mới nhất, mới nhất đầu danh sách
   const recent = profile.wordBank.slice(-5).reverse();
   return (
-    <div className="rounded-2xl border border-white/5 bg-white/5 p-4 backdrop-blur-sm">
+    <div className="glass rounded-2xl p-4">
       <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold tracking-wide text-slate-200">
+        <h2 className="font-display text-sm font-semibold tracking-wide text-kong-ink">
           Word Bank
         </h2>
         <span className="text-[10px] uppercase tracking-wider text-slate-500">

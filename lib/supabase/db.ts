@@ -76,11 +76,11 @@ export async function loadProfile(
   } = await supabase.auth.getUser();
   if (!user) return null;
 
+  // SELECT * — resilient nếu migration mới chưa chạy (cột reply_lang /
+  // interaction_mode chưa tồn tại). Các field thiếu sẽ rơi về default.
   const { data, error } = await supabase
     .from("profiles")
-    .select(
-      "user_id, username, display_name, role, level, manual_level, interests, input_lang, reply_lang, interaction_mode, word_bank"
-    )
+    .select("*")
     .eq("user_id", user.id)
     .single();
   if (error || !data) return null;
