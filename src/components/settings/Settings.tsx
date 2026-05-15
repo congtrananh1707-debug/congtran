@@ -264,44 +264,55 @@ export default function Settings() {
 
       {isParent && (
         <>
-          {/* Game Rewards */}
+          {/* Game Rewards — per-completion bonus, one knob per game */}
           <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-3xl p-5 shadow-sm border border-amber-200 dark:border-amber-700">
             <div className="flex items-start justify-between mb-1">
-              <h3 className="font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">🎮 Thưởng xu trong trò chơi</h3>
+              <h3 className="font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">🎮 Thưởng xu khi chơi xong</h3>
               <button
-                onClick={() => { if (window.confirm('Khôi phục về mặc định (5, 60, 5, 5)?')) resetGameRewards() }}
+                onClick={() => { if (window.confirm('Khôi phục về mặc định 10 xu cho mỗi ván?')) resetGameRewards() }}
                 className="text-xs text-amber-700 dark:text-amber-300 hover:underline"
               >
                 ↺ Mặc định
               </button>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-              Đặt số xu con kiếm được sau mỗi câu/cặp đúng. Đặt <strong>0</strong> nếu muốn tắt thưởng hoàn toàn cho một trò.
+              Mỗi <strong>ván hoàn thành</strong> con được số xu này. Đặt <strong>0</strong> để tắt thưởng cho 1 trò bất kỳ.
             </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">🧠 Tìm cặp — mỗi cặp đúng</label>
-                <input type="number" min={0} max={100} value={gameRewards.memoryPair}
-                  onChange={(e) => setGameRewards({ memoryPair: Math.max(0, parseInt(e.target.value) || 0) })}
-                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm" />
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🧠</span>
+                <div className="flex-1">
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block">Tìm cặp giống nhau</label>
+                  <p className="text-[11px] text-gray-400">Ghép đủ 8 cặp emoji ↔ từ tiếng Anh</p>
+                </div>
+                <input type="number" min={0} max={500} value={gameRewards.memoryComplete}
+                  onChange={(e) => setGameRewards({ memoryComplete: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="w-20 text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm font-bold" />
+                <span className="text-sm text-gray-500">🪙</span>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">🧠 Tìm cặp — trần xu/ván</label>
-                <input type="number" min={0} max={500} value={gameRewards.memoryRoundCap}
-                  onChange={(e) => setGameRewards({ memoryRoundCap: Math.max(0, parseInt(e.target.value) || 0) })}
-                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm" />
+
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">⌨️</span>
+                <div className="flex-1">
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block">Đoán từ</label>
+                  <p className="text-[11px] text-gray-400">Trả lời xong 10 câu (gõ đúng từ tiếng Anh)</p>
+                </div>
+                <input type="number" min={0} max={500} value={gameRewards.guessComplete}
+                  onChange={(e) => setGameRewards({ guessComplete: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="w-20 text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm font-bold" />
+                <span className="text-sm text-gray-500">🪙</span>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">⌨️ Đoán từ — mỗi câu đúng</label>
-                <input type="number" min={0} max={100} value={gameRewards.guessWord}
-                  onChange={(e) => setGameRewards({ guessWord: Math.max(0, parseInt(e.target.value) || 0) })}
-                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">🎯 Mini Quiz từ vựng — mỗi cặp</label>
-                <input type="number" min={0} max={100} value={gameRewards.vocabMatch}
-                  onChange={(e) => setGameRewards({ vocabMatch: Math.max(0, parseInt(e.target.value) || 0) })}
-                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm" />
+
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🎯</span>
+                <div className="flex-1">
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block">Mini Quiz từ vựng (English Adventure)</label>
+                  <p className="text-[11px] text-gray-400">Ghép cả 4 cặp từ ↔ nghĩa trong 1 ván</p>
+                </div>
+                <input type="number" min={0} max={500} value={gameRewards.vocabComplete}
+                  onChange={(e) => setGameRewards({ vocabComplete: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="w-20 text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm font-bold" />
+                <span className="text-sm text-gray-500">🪙</span>
               </div>
             </div>
             <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">

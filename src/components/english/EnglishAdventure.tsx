@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../../store/useStore'
 import { ENGLISH_THEMES, ENGLISH_THEME_LABELS } from '../../types'
@@ -31,19 +31,8 @@ function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string })
   const masterVocabWord = useStore((s) => s.masterVocabWord)
   const updateMember    = useStore((s) => s.updateMember)
   const members         = useStore((s) => s.members)
-  const tokensPerMatch  = useStore((s) => s.gameRewards.vocabMatch)
+  const reward          = useStore((s) => s.gameRewards.vocabComplete)
   const quizWords = useMemo(() => shuffle(words).slice(0, 4), [words])
-  const [floatScore, setFloatScore] = useState<{ id: number; text: string } | null>(null)
-
-  const award = (n: number) => {
-    if (n <= 0) return
-    const me = members.find((m) => m.id === memberId)
-    if (!me) return
-    updateMember(memberId, { tokens: me.tokens + n })
-    const id = Date.now() + Math.random()
-    setFloatScore({ id, text: `+${n} 🪙` })
-    setTimeout(() => setFloatScore((cur) => (cur?.id === id ? null : cur)), 900)
-  }
 
   const [state, setState] = useState<QuizState>(() => ({
     words: quizWords,
@@ -54,6 +43,16 @@ function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string })
   }))
 
   const [done, setDone] = useState(false)
+  const awardedRef = useRef(false)
+
+  const finish = () => {
+    if (!awardedRef.current && reward > 0) {
+      awardedRef.current = true
+      const me = members.find((m) => m.id === memberId)
+      if (me) updateMember(memberId, { tokens: me.tokens + reward })
+    }
+    setDone(true)
+  }
 
   const selectWord = (id: string) => {
     if (state.matched.includes(id)) return
@@ -68,8 +67,7 @@ function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string })
       const next = { ...state, matched: [...state.matched, id], selectedWord: null, wrong: null }
       setState(next)
       masterVocabWord(id, memberId)
-      award(tokensPerMatch)
-      if (next.matched.length === quizWords.length) setTimeout(() => setDone(true), 400)
+      if (next.matched.length === quizWords.length) setTimeout(finish, 400)
     } else {
       setState((s) => ({ ...s, wrong: s.selectedWord, selectedWord: null }))
       setTimeout(() => setState((s) => ({ ...s, wrong: null })), 600)
@@ -84,10 +82,19 @@ function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string })
         <p className="text-xl font-bold text-gray-800 dark:text-white mb-1">Xuất sắc!</p>
         <p className="text-gray-500 text-sm mb-4">
           Bạn đã ghép đúng tất cả!
-          {tokensPerMatch > 0 && <> +{quizWords.length * tokensPerMatch} xu được ghi nhận</>}
+          {reward > 0 && <> +{reward} 🪙 đã được ghi nhận.</>}
         </p>
-        <button onClick={() => { setDone(false); setState({ words: quizWords, selectedWord: null, matched: [], wrong: null, shuffledTranslations: shuffle(quizWords.map((w) => ({ id: w.id, text: w.translation }))) }) }}
-          className="bg-violet-600 text-white px-6 py-2 rounded-xl font-medium text-sm hover:bg-violet-700">
+        <button
+          onClick={() => {
+            setDone(false)
+            awardedRef.current = false
+            setState({
+              words: quizWords, selectedWord: null, matched: [], wrong: null,
+              shuffledTranslations: shuffle(quizWords.map((w) => ({ id: w.id, text: w.translation }))),
+            })
+          }}
+          className="bg-violet-600 text-white px-6 py-2 rounded-xl font-medium text-sm hover:bg-violet-700"
+        >
           Chơi lại
         </button>
       </motion.div>
@@ -96,23 +103,9 @@ function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string })
 
   return (
     <div className="relative">
-      <AnimatePresence>
-        {floatScore && (
-          <motion.div
-            key={floatScore.id}
-            initial={{ opacity: 0, y: 0, scale: 0.7 }}
-            animate={{ opacity: 1, y: -40, scale: 1 }}
-            exit={{ opacity: 0, y: -60 }}
-            transition={{ duration: 0.9 }}
-            className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-amber-400 text-amber-900 px-3 py-1 rounded-full font-bold text-sm shadow-lg pointer-events-none"
-          >
-            {floatScore.text}
-          </motion.div>
-        )}
-      </AnimatePresence>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">
         Chọn từ bên trái → chọn nghĩa tương ứng bên phải
-        {tokensPerMatch > 0 && <> · mỗi cặp đúng được +{tokensPerMatch} xu</>}
+        {reward > 0 && <> · hoàn thành cả 4 cặp được +{reward} 🪙</>}
       </p>
       <div className="flex gap-4">
         {/* Words column */}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../../store/useStore'
 import { shuffle } from '../../utils/helpers'
@@ -31,14 +31,20 @@ function makeMemoryDeck(pairCount: number): Card[] {
 function MemoryMatch({ memberId, onExit }: { memberId: string; onExit: () => void }) {
   const updateMember = useStore((s) => s.updateMember)
   const members      = useStore((s) => s.members)
-  const tokensPerPair = useStore((s) => s.gameRewards.memoryPair)
-  const roundCap      = useStore((s) => s.gameRewards.memoryRoundCap)
+  const reward       = useStore((s) => s.gameRewards.memoryComplete)
   const [pairCount] = useState(8)
   const [cards, setCards] = useState<Card[]>(() => makeMemoryDeck(pairCount))
   const [selected, setSelected] = useState<Card[]>([])
   const [moves, setMoves] = useState(0)
   const [won, setWon] = useState(false)
-  const [earned, setEarned] = useState(0)
+  const awardedRef = useRef(false)
+
+  const award = () => {
+    if (awardedRef.current || reward <= 0) return
+    awardedRef.current = true
+    const me = members.find((m) => m.id === memberId)
+    if (me) updateMember(memberId, { tokens: me.tokens + reward })
+  }
 
   const flip = (card: Card) => {
     if (card.matched || card.flipped || selected.length === 2) return
@@ -60,13 +66,12 @@ function MemoryMatch({ memberId, onExit }: { memberId: string; onExit: () => voi
         )
         setSelected([])
         if (isMatch) {
-          const next = Math.min(roundCap, earned + tokensPerPair)
-          setEarned(next)
-          const me = members.find((m) => m.id === memberId)
-          if (me && next > earned) updateMember(memberId, { tokens: me.tokens + (next - earned) })
-          // Check completion using the updated card list
+          // Round-complete check uses the soon-to-be-applied card list.
           const remaining = cards.filter((c) => !c.matched && c.cardId !== a.cardId && c.cardId !== b.cardId).length
-          if (remaining === 0) setTimeout(() => setWon(true), 350)
+          if (remaining === 0) {
+            award()
+            setTimeout(() => setWon(true), 350)
+          }
         }
       }, 700)
     }
@@ -74,7 +79,8 @@ function MemoryMatch({ memberId, onExit }: { memberId: string; onExit: () => voi
 
   const restart = () => {
     setCards(makeMemoryDeck(pairCount))
-    setSelected([]); setMoves(0); setWon(false); setEarned(0)
+    setSelected([]); setMoves(0); setWon(false)
+    awardedRef.current = false
   }
 
   return (
@@ -87,8 +93,8 @@ function MemoryMatch({ memberId, onExit }: { memberId: string; onExit: () => voi
 
       <p className="text-sm text-center text-gray-500 mb-4">
         Mở 2 thẻ — ghép từ tiếng Anh với icon tương ứng.
-        {tokensPerPair > 0
-          ? <> Mỗi cặp đúng được <strong>+{tokensPerPair} 🪙</strong> (tối đa {roundCap} xu/ván).</>
+        {reward > 0
+          ? <> Hoàn thành ván sẽ được <strong>+{reward} 🪙</strong>.</>
           : ' (Bố mẹ đã tắt thưởng xu cho trò này.)'}
       </p>
 
@@ -123,7 +129,7 @@ function MemoryMatch({ memberId, onExit }: { memberId: string; onExit: () => voi
             <motion.div initial={{ scale: 0.7 }} animate={{ scale: 1 }} className="bg-white dark:bg-gray-800 rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl">
               <div className="text-6xl mb-2">🏆</div>
               <p className="text-xl font-bold text-gray-800 dark:text-white mb-1">Hoàn thành!</p>
-              <p className="text-gray-500 mb-4">{moves} lượt · +{earned} 🪙</p>
+              <p className="text-gray-500 mb-4">{moves} lượt{reward > 0 ? ` · +${reward} 🪙` : ''}</p>
               <div className="flex gap-2 justify-center">
                 <button onClick={restart} className="bg-violet-600 text-white px-5 py-2 rounded-xl font-medium hover:bg-violet-700">Chơi lại</button>
                 <button onClick={onExit} className="bg-gray-100 text-gray-700 px-5 py-2 rounded-xl font-medium hover:bg-gray-200">Đóng</button>
@@ -141,26 +147,34 @@ function MemoryMatch({ memberId, onExit }: { memberId: string; onExit: () => voi
 function GuessGame({ memberId, onExit }: { memberId: string; onExit: () => void }) {
   const updateMember = useStore((s) => s.updateMember)
   const members      = useStore((s) => s.members)
-  const tokensPerWord = useStore((s) => s.gameRewards.guessWord)
+  const reward       = useStore((s) => s.gameRewards.guessComplete)
   const [pool] = useState(() => shuffle(VOCAB_DATA.filter((v) => v.emoji)).slice(0, 10))
   const [idx, setIdx] = useState(0)
   const [input, setInput] = useState('')
   const [feedback, setFeedback] = useState<'idle' | 'correct' | 'wrong'>('idle')
   const [score, setScore] = useState(0)
   const [done, setDone] = useState(false)
+  const awardedRef = useRef(false)
 
   const word = pool[idx]
+
+  const finish = () => {
+    if (!awardedRef.current && reward > 0) {
+      awardedRef.current = true
+      const me = members.find((m) => m.id === memberId)
+      if (me) updateMember(memberId, { tokens: me.tokens + reward })
+    }
+    setDone(true)
+  }
 
   const submit = () => {
     if (!word) return
     if (input.trim().toLowerCase() === word.word.toLowerCase()) {
       setFeedback('correct')
       setScore((s) => s + 1)
-      const me = members.find((m) => m.id === memberId)
-      if (me && tokensPerWord > 0) updateMember(memberId, { tokens: me.tokens + tokensPerWord })
       setTimeout(() => {
         setFeedback('idle'); setInput('')
-        if (idx + 1 >= pool.length) setDone(true)
+        if (idx + 1 >= pool.length) finish()
         else setIdx((i) => i + 1)
       }, 700)
     } else {
@@ -174,9 +188,9 @@ function GuessGame({ memberId, onExit }: { memberId: string; onExit: () => void 
       <div className="p-4 lg:p-6 max-w-md mx-auto text-center">
         <div className="text-6xl mb-3">{score >= 8 ? '🏆' : score >= 5 ? '🎉' : '💪'}</div>
         <p className="text-xl font-bold text-gray-800 dark:text-white mb-1">{score}/{pool.length} đúng</p>
-        <p className="text-gray-500 mb-4">+{score * tokensPerWord} 🪙</p>
+        {reward > 0 && <p className="text-gray-500 mb-4">+{reward} 🪙 thưởng hoàn thành</p>}
         <div className="flex gap-2 justify-center">
-          <button onClick={() => { setIdx(0); setInput(''); setScore(0); setDone(false) }} className="bg-violet-600 text-white px-5 py-2 rounded-xl font-medium hover:bg-violet-700">Chơi lại</button>
+          <button onClick={() => { setIdx(0); setInput(''); setScore(0); setDone(false); awardedRef.current = false }} className="bg-violet-600 text-white px-5 py-2 rounded-xl font-medium hover:bg-violet-700">Chơi lại</button>
           <button onClick={onExit} className="bg-gray-100 text-gray-700 px-5 py-2 rounded-xl font-medium hover:bg-gray-200">Đóng</button>
         </div>
       </div>
@@ -215,7 +229,7 @@ function GuessGame({ memberId, onExit }: { memberId: string; onExit: () => void 
         {feedback === 'correct' ? '✅ Đúng rồi!' : 'Kiểm tra'}
       </button>
       <p className="text-center text-sm text-gray-400 mt-3">
-        ⭐ {score} đúng{tokensPerWord > 0 ? <> · mỗi câu +{tokensPerWord} 🪙</> : ''}
+        ⭐ {score} đúng{reward > 0 ? <> · hoàn thành ván +{reward} 🪙</> : ''}
       </p>
     </div>
   )

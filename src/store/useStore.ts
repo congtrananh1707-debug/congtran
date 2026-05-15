@@ -8,10 +8,9 @@ import type {
 } from '../types'
 
 const DEFAULT_GAME_REWARDS: GameRewards = {
-  memoryPair: 5,
-  memoryRoundCap: 60,
-  guessWord: 5,
-  vocabMatch: 5,
+  memoryComplete: 10,
+  guessComplete:  10,
+  vocabComplete:  10,
 }
 import { nanoid, todayStr } from '../utils/helpers'
 import { queueDelete } from '../utils/deletionQueue'
@@ -535,7 +534,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'family-hub-v1',
-      version: 6,
+      version: 7,
       // Strip heavy base64 fields before writing to localStorage. iOS Safari
       // caps localStorage at ~5MB; photo dataUrls, avatars, and ancestor
       // photos easily blow that. Everything stripped here lives on Supabase
@@ -604,10 +603,17 @@ export const useStore = create<Store>()(
           )
           persisted = { ...persisted, vocabWords: [...VOCAB_DATA, ...userAdded] }
         }
-        // Always make sure gameRewards exists with sensible defaults so the
-        // games never read `undefined.memoryPair` after an older device
-        // hydrates a state that predates this field.
-        if (!persisted.gameRewards) {
+        // v7: GameRewards switched from per-event awards (per-pair,
+        // per-question) to a single per-completion bonus per game. Reset
+        // any older shape onto the new defaults — preserving the player's
+        // previous gameRewards object would either be undefined fields the
+        // games read at 0, or mid-game awards that no longer fire.
+        const gr = persisted.gameRewards
+        const isNewShape =
+          gr && typeof gr.memoryComplete === 'number' &&
+          typeof gr.guessComplete === 'number' &&
+          typeof gr.vocabComplete === 'number'
+        if (!isNewShape) {
           persisted = { ...persisted, gameRewards: { ...DEFAULT_GAME_REWARDS } }
         }
         return persisted

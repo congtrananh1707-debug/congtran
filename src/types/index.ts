@@ -190,15 +190,13 @@ export type CalendarEvent = {
   createdBy: string
 }
 
-// Per-family game rewards configuration. Lets parents tune how much each
-// kid-game answer is worth (or zero it out if they don't want kids
-// farming the reward shop). Kept on the store as plain numbers; the
-// games read them directly via useStore.
+// Per-family game rewards configuration. One number per game = the xu the
+// kid earns when they finish a round. Parents tune this from Settings; set
+// any value to 0 to turn off the token loop for that game entirely.
 export type GameRewards = {
-  memoryPair: number       // xu per matched pair in Memory Match
-  memoryRoundCap: number   // max xu earnable per Memory round
-  guessWord: number        // xu per correct answer in Đoán từ
-  vocabMatch: number       // xu per correct match in EnglishAdventure mini-quiz
+  memoryComplete: number   // xu when a Memory Match round is fully cleared
+  guessComplete: number    // xu when Đoán từ finishes its 10 questions
+  vocabComplete: number    // xu when the EnglishAdventure mini-quiz is matched
 }
 
 // Daily todo — short, recurring chore-style item.
