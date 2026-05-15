@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../../store/useStore'
 import { shuffle } from '../../utils/helpers'
@@ -7,10 +7,13 @@ import type { Member, QuizQuestion } from '../../types'
 
 // ─── Auto-generate questions from member data ──────────────────────────────────
 
-function generateFromMembers(members: Member[], createdBy: string): QuizQuestion[] {
-  const qs: QuizQuestion[] = []
+type AutoQ = Omit<QuizQuestion, 'id'>
+
+function generateFromMembers(members: Member[]): AutoQ[] {
+  const qs: AutoQ[] = []
   const names = members.map((m) => m.name)
   const rand = (arr: string[], exclude?: string) => shuffle(arr.filter((x) => x !== exclude))
+  const createdBy = '__auto__'
 
   // Birthday questions
   members.forEach((m) => {
@@ -23,7 +26,7 @@ function generateFromMembers(members: Member[], createdBy: string): QuizQuestion
     const wrong = shuffle([...otherDates, ...fakes]).slice(0, 3)
     if (wrong.length < 3) return
     const answers = shuffle([correct, ...wrong])
-    qs.push({ id: `auto-bd-${m.id}`, question: `Ngày sinh nhật của ${m.emoji} ${m.name} là ngày nào?`, answers, correctIndex: answers.indexOf(correct), createdBy })
+    qs.push({ question: `Ngày sinh nhật của ${m.emoji} ${m.name} là ngày nào?`, answers, correctIndex: answers.indexOf(correct), createdBy })
   })
 
   // Favorite food questions
@@ -33,7 +36,7 @@ function generateFromMembers(members: Member[], createdBy: string): QuizQuestion
     const wrongNames = rand(names, m.name).slice(0, 3)
     if (wrongNames.length < 3) return
     const answers = shuffle([m.name, ...wrongNames])
-    qs.push({ id: `auto-food-${m.id}`, question: `Ai trong gia đình thích ăn ${food} nhất?`, answers, correctIndex: answers.indexOf(m.name), createdBy })
+    qs.push({ question: `Ai trong gia đình thích ăn ${food} nhất?`, answers, correctIndex: answers.indexOf(m.name), createdBy })
   })
 
   // Blood type questions
@@ -42,20 +45,132 @@ function generateFromMembers(members: Member[], createdBy: string): QuizQuestion
     if (!m.bloodType) return
     const wrong = shuffle(BLOOD.filter((b) => b !== m.bloodType)).slice(0, 3)
     const answers = shuffle([m.bloodType, ...wrong])
-    qs.push({ id: `auto-blood-${m.id}`, question: `Nhóm máu của ${m.emoji} ${m.name} là gì?`, answers, correctIndex: answers.indexOf(m.bloodType), createdBy })
+    qs.push({ question: `Nhóm máu của ${m.emoji} ${m.name} là gì?`, answers, correctIndex: answers.indexOf(m.bloodType), createdBy })
   })
 
-  // Goal question
+  // Goal questions
   members.forEach((m) => {
     if (!m.goals.length) return
     const goal = m.goals[0]
     const wrongNames = rand(names, m.name).slice(0, 3)
     if (wrongNames.length < 3) return
     const answers = shuffle([m.name, ...wrongNames])
-    qs.push({ id: `auto-goal-${m.id}`, question: `"${goal}" là mục tiêu của ai?`, answers, correctIndex: answers.indexOf(m.name), createdBy })
+    qs.push({ question: `"${goal}" là mục tiêu của ai?`, answers, correctIndex: answers.indexOf(m.name), createdBy })
+  })
+
+  // Allergy questions — fun trivia for safety awareness
+  members.forEach((m) => {
+    if (!m.allergies.length) return
+    const allergen = m.allergies[0]
+    const wrongNames = rand(names, m.name).slice(0, 3)
+    if (wrongNames.length < 3) return
+    const answers = shuffle([m.name, ...wrongNames])
+    qs.push({ question: `Ai trong nhà bị dị ứng với ${allergen}?`, answers, correctIndex: answers.indexOf(m.name), createdBy })
+  })
+
+  // Birthday MONTH-only (easier variant)
+  members.forEach((m) => {
+    if (!m.birthday) return
+    const month = parseInt(m.birthday.split('-')[1], 10)
+    if (!month) return
+    const wrong = shuffle([1,2,3,4,5,6,7,8,9,10,11,12].filter((x) => x !== month)).slice(0, 3)
+    const answers = shuffle([month, ...wrong]).map((x) => `Tháng ${x}`)
+    qs.push({ question: `${m.emoji} ${m.name} sinh vào tháng nào?`, answers, correctIndex: answers.indexOf(`Tháng ${month}`), createdBy })
   })
 
   return qs
+}
+
+// ─── General-knowledge & fun question pool (kid-friendly, Vietnamese) ─────────
+// Built once at module-load so we don't re-allocate per render. Each entry's
+// correct answer sits at index 0 in `answers`; we shuffle when scheduling.
+
+const TRIVIA_QUESTIONS: { q: string; a: [string, string, string, string] }[] = [
+  // Science / nature
+  { q: 'Nước có công thức hóa học là gì?', a: ['H₂O', 'CO₂', 'NaCl', 'O₂'] },
+  { q: 'Hành tinh nào gần Mặt Trời nhất?', a: ['Sao Thủy', 'Sao Kim', 'Trái Đất', 'Sao Hỏa'] },
+  { q: 'Mặt Trời mọc ở hướng nào?', a: ['Đông', 'Tây', 'Nam', 'Bắc'] },
+  { q: 'Con vật nào có cổ dài nhất?', a: ['Hươu cao cổ', 'Voi', 'Hà mã', 'Cá sấu'] },
+  { q: 'Động vật nào có thể bay?', a: ['Chim', 'Cá', 'Mèo', 'Chó'] },
+  { q: 'Trái Đất có bao nhiêu mặt trăng?', a: ['1', '2', '3', '0'] },
+  { q: 'Cá thở bằng gì?', a: ['Mang', 'Phổi', 'Mũi', 'Miệng'] },
+  { q: 'Cây cối hô hấp thải ra khí gì?', a: ['Oxy (ban ngày)', 'Khí hydro', 'Khí nitơ', 'Khí helium'] },
+  { q: 'Tốc độ ánh sáng nhanh hơn tốc độ âm thanh — đúng hay sai?', a: ['Đúng', 'Sai', 'Bằng nhau', 'Không biết'] },
+  { q: 'Mưa rơi từ đâu xuống?', a: ['Đám mây', 'Mặt trời', 'Mặt đất', 'Cầu vồng'] },
+  { q: 'Vào mùa nào lá rụng nhiều nhất?', a: ['Thu', 'Xuân', 'Hè', 'Đông'] },
+  { q: 'Có bao nhiêu màu trong cầu vồng?', a: ['7', '5', '6', '8'] },
+  { q: 'Loại cây nào cho gỗ làm bút chì?', a: ['Cây tuyết tùng', 'Cây dừa', 'Cây bàng', 'Cây xoài'] },
+  { q: 'Con vật nào ngủ đông?', a: ['Gấu', 'Voi', 'Chó', 'Mèo'] },
+  { q: 'Đại dương lớn nhất thế giới là gì?', a: ['Thái Bình Dương', 'Đại Tây Dương', 'Ấn Độ Dương', 'Bắc Băng Dương'] },
+  { q: 'Nóng chảy là khi chất rắn chuyển thành gì?', a: ['Chất lỏng', 'Chất khí', 'Plasma', 'Lửa'] },
+
+  // Geography Vietnam
+  { q: 'Thủ đô của Việt Nam là gì?', a: ['Hà Nội', 'TP. Hồ Chí Minh', 'Đà Nẵng', 'Huế'] },
+  { q: 'Núi cao nhất Việt Nam là?', a: ['Fansipan', 'Bà Đen', 'Bạch Mã', 'Lang Biang'] },
+  { q: 'Sông nào dài nhất Việt Nam?', a: ['Sông Mekong', 'Sông Hồng', 'Sông Đồng Nai', 'Sông Đà'] },
+  { q: 'Vịnh nào ở Việt Nam là di sản thế giới?', a: ['Vịnh Hạ Long', 'Vịnh Cam Ranh', 'Vịnh Nha Trang', 'Vịnh Vũng Tàu'] },
+  { q: 'Việt Nam có hình chữ gì trên bản đồ?', a: ['Chữ S', 'Chữ L', 'Chữ J', 'Chữ T'] },
+
+  // Math (kid-level)
+  { q: '5 + 7 = ?', a: ['12', '11', '13', '14'] },
+  { q: '9 × 8 = ?', a: ['72', '64', '81', '74'] },
+  { q: '100 chia 4 bằng?', a: ['25', '20', '30', '24'] },
+  { q: 'Một tuần có bao nhiêu ngày?', a: ['7', '5', '6', '10'] },
+  { q: 'Một năm có bao nhiêu tháng?', a: ['12', '10', '11', '13'] },
+  { q: 'Một giờ có bao nhiêu phút?', a: ['60', '30', '100', '24'] },
+  { q: 'Tam giác có mấy cạnh?', a: ['3', '4', '5', '2'] },
+  { q: 'Hình tròn có mấy góc?', a: ['Không có', '4', '1', 'Vô số'] },
+
+  // Vietnamese culture / food (fun!)
+  { q: 'Phở là món ăn của nước nào?', a: ['Việt Nam', 'Trung Quốc', 'Thái Lan', 'Nhật Bản'] },
+  { q: 'Bánh chưng ăn vào dịp nào?', a: ['Tết Nguyên Đán', 'Trung Thu', 'Rằm tháng 7', 'Quốc khánh'] },
+  { q: 'Bánh trung thu có hình gì?', a: ['Tròn hoặc vuông', 'Tam giác', 'Trái tim', 'Ngôi sao'] },
+  { q: 'Áo dài là trang phục truyền thống của ai?', a: ['Người Việt', 'Người Hàn', 'Người Nhật', 'Người Thái'] },
+  { q: 'Đèn ông sao xuất hiện vào ngày nào?', a: ['Trung Thu', 'Tết Nguyên Đán', 'Giáng sinh', 'Tết Hàn Thực'] },
+
+  // Hài hước — fun trick questions
+  { q: 'Cái gì càng cho càng có?', a: ['Tình yêu', 'Tiền', 'Đồ ăn', 'Quần áo'] },
+  { q: 'Cái gì không có nhưng nói có?', a: ['Cái không', 'Cái có', 'Cái biết', 'Cái ngu'] },
+  { q: 'Chim non biết bay chưa?', a: ['Chưa, phải tập đã', 'Sinh ra là bay liền', 'Không bao giờ bay', 'Bay luôn 10 km'] },
+  { q: 'Con gì có 4 chân nhưng không đi được?', a: ['Cái bàn', 'Con bò', 'Con voi', 'Con kiến'] },
+  { q: 'Cái gì luôn đi trước bạn dù bạn chạy nhanh đến đâu?', a: ['Bóng của bạn (lúc nắng)', 'Bạn cùng lớp', 'Con chó', 'Cha mẹ'] },
+  { q: 'Cái gì càng nóng càng đóng băng?', a: ['Trò đùa', 'Nước đá', 'Cốc trà', 'Bánh kem'] },
+  { q: 'Cái gì ướt khi đem ra phơi nắng?', a: ['Cá khô… ngâm nước', 'Khăn mặt', 'Quần áo', 'Tóc'] },
+  { q: 'Có bao nhiêu chữ cái trong "BẢNG CHỮ CÁI"?', a: ['11 chữ', '29 chữ', '26 chữ', '5 chữ'] },
+  { q: 'Mèo kêu thế nào?', a: ['Meo meo', 'Gâu gâu', 'Quác quác', 'Ụt ịt'] },
+  { q: 'Chó kêu thế nào?', a: ['Gâu gâu', 'Meo meo', 'Cục tác', 'Ò ó o'] },
+  { q: 'Gà trống gáy lúc nào?', a: ['Sáng sớm', 'Đêm khuya', 'Giữa trưa', 'Buổi tối'] },
+
+  // Vietnamese folk / general
+  { q: 'Trong truyện Tấm Cám, ai là người tốt?', a: ['Tấm', 'Cám', 'Dì ghẻ', 'Vua'] },
+  { q: 'Bánh trưng vuông tượng trưng cho gì?', a: ['Đất', 'Trời', 'Mặt trăng', 'Mặt trời'] },
+  { q: 'Bánh dày tròn tượng trưng cho gì?', a: ['Trời', 'Đất', 'Núi', 'Sông'] },
+  { q: 'Lễ hội đua thuyền diễn ra ở đâu?', a: ['Trên sông', 'Trên núi', 'Trên đường', 'Trên cánh đồng'] },
+]
+
+function generateTrivia(count: number): AutoQ[] {
+  return shuffle(TRIVIA_QUESTIONS).slice(0, count).map(({ q, a }) => {
+    const correct = a[0]
+    const answers = shuffle([...a])
+    return {
+      question: q,
+      answers,
+      correctIndex: answers.indexOf(correct),
+      createdBy: '__auto__',
+    }
+  })
+}
+
+// Stable hash of member fields the question generators read.
+// Reading the relevant fields directly means renaming the function or hand-
+// rolling Quest types doesn't bust the cache, but editing a birthday/food/
+// goal/allergy/blood/name does.
+function memberHash(members: Member[]): string {
+  return members
+    .map((m) =>
+      [m.id, m.name, m.emoji, m.birthday, m.bloodType, m.favoriteFoods.join(','), m.allergies.join(','), m.goals.join(',')].join('|')
+    )
+    .join('::')
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -133,14 +248,45 @@ export default function FamilyQuiz() {
     }, 600)
   }
 
-  const autoGenerate = () => {
-    // Remove old auto-generated questions first
-    questions.filter((q) => q.id.startsWith('auto-') || q.createdBy === '__auto__').forEach((q) => removeQuizQuestion(q.id))
-    const generated = generateFromMembers(members, currentMemberId || '')
-    generated.forEach((q) => addQuizQuestion({ question: q.question, answers: q.answers, correctIndex: q.correctIndex, createdBy: '__auto__' }))
-    setAutoMsg(`✅ Đã tạo ${generated.length} câu từ hồ sơ thành viên!`)
-    setTimeout(() => setAutoMsg(''), 3000)
+  const autoGenerate = (silent = false) => {
+    // Remove ALL prior auto-generated questions so we start clean.
+    questions
+      .filter((q) => q.id.startsWith('auto-') || q.createdBy === '__auto__')
+      .forEach((q) => removeQuizQuestion(q.id))
+
+    const fromMembers = generateFromMembers(members)
+    // Top up to a healthier pool size with fun + general-knowledge trivia.
+    const target = Math.max(20, fromMembers.length + 12)
+    const trivia = generateTrivia(target - fromMembers.length)
+    const all = [...fromMembers, ...trivia]
+    all.forEach((q) => addQuizQuestion(q))
+
+    if (!silent) {
+      setAutoMsg(`✅ Đã tạo ${all.length} câu (${fromMembers.length} từ hồ sơ + ${trivia.length} kiến thức/hài hước)`)
+      setTimeout(() => setAutoMsg(''), 3500)
+    }
   }
+
+  // Auto-refresh auto-questions when any sourced member field changes.
+  // We only kick off when there are already auto-questions (so first-time
+  // users still have to opt in via the manual button); after that, edits to
+  // a member's birthday / food / blood / goal / allergy regenerate
+  // automatically.
+  const lastHashRef = useRef<string>('')
+  useEffect(() => {
+    const hasAuto = questions.some((q) => q.createdBy === '__auto__' || q.id.startsWith('auto-'))
+    if (!hasAuto) return
+    const h = memberHash(members)
+    if (h === lastHashRef.current) return
+    if (lastHashRef.current === '') {
+      // First run after mount — adopt current hash, don't regenerate
+      lastHashRef.current = h
+      return
+    }
+    lastHashRef.current = h
+    autoGenerate(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberHash(members)])
 
   // ── Play mode ──────────────────────────────────────────────────────────────
 
@@ -265,9 +411,9 @@ export default function FamilyQuiz() {
             <h3 className="font-bold text-gray-700 dark:text-gray-200">Quản lý câu hỏi</h3>
             <div className="flex gap-2">
               {/* Auto-generate button */}
-              <button onClick={autoGenerate}
+              <button onClick={() => autoGenerate()}
                 className="bg-amber-500 text-white px-3 py-1.5 rounded-xl text-sm font-medium hover:bg-amber-600 flex items-center gap-1">
-                🔄 Tạo từ hồ sơ
+                🔄 Tạo bộ câu hỏi
               </button>
               <button onClick={() => setShowAdd(!showAdd)}
                 className="bg-violet-600 text-white px-3 py-1.5 rounded-xl text-sm font-medium">
@@ -280,8 +426,10 @@ export default function FamilyQuiz() {
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-amber-700 text-sm mb-3">{autoMsg}</div>
           )}
 
-          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl px-4 py-2.5 text-amber-700 dark:text-amber-300 text-xs mb-4">
-            💡 <strong>Tạo từ hồ sơ</strong>: Tự động sinh câu hỏi sinh nhật, món ăn, nhóm máu, mục tiêu từ thông tin thành viên hiện tại. Mỗi lần bấm sẽ xóa câu cũ và tạo mới.
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl px-4 py-2.5 text-amber-700 dark:text-amber-300 text-xs mb-4 leading-relaxed">
+            💡 <strong>Tạo bộ câu hỏi</strong>: tự sinh câu về sinh nhật / món ăn / nhóm máu / mục tiêu / dị ứng từ hồ sơ thành viên,
+            cộng thêm câu kiến thức (toán, khoa học, địa lý Việt Nam) và câu đố hài hước.
+            Sau lần đầu, app sẽ <strong>tự cập nhật</strong> mỗi khi bạn sửa thông tin thành viên.
           </div>
 
           <AnimatePresence>

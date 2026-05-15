@@ -41,8 +41,18 @@ export default function MagicWheel() {
 
     setTimeout(() => {
       setSpinning(false)
+      // The pointer (▼) sits at the top of the wheel, which corresponds to
+      // the SVG angle -90° — exactly where segment 0 starts when the wheel
+      // is un-rotated. After rotating the wheel by `newRotation` clockwise,
+      // the slice currently under the pointer is the one whose ORIGINAL
+      // position is at angle (-90° - newRotation). Walking that back to the
+      // segment-index space:
+      //     idx = floor((-newRotation mod 360) / segSize)
+      //         = floor(((360 - newRotation%360) % 360) / segSize)
+      // The previous formula had a spurious "+ 90", which shifted the
+      // picked slice by a quarter turn from what the user saw.
       const segSize = 360 / items.length
-      const normalizedDeg = ((360 - (newRotation % 360)) + 90) % 360
+      const normalizedDeg = ((360 - (newRotation % 360)) % 360 + 360) % 360
       const idx = Math.floor(normalizedDeg / segSize) % items.length
       setResult(items[idx])
     }, 3500)
