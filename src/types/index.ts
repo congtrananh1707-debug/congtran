@@ -178,6 +178,7 @@ export type VocabWord = {
   example: string
   theme: string
   masteredBy: string[]
+  emoji?: string   // optional pictograph for kid-friendly display
 }
 
 export type CalendarEvent = {

@@ -232,6 +232,8 @@ CREATE TABLE IF NOT EXISTS silent_heroes (
 );
 
 -- Vocab words
+-- MIGRATION for existing tables (run once):
+--   ALTER TABLE vocab_words ADD COLUMN IF NOT EXISTS emoji TEXT;
 CREATE TABLE IF NOT EXISTS vocab_words (
   id TEXT NOT NULL,
   family_code TEXT NOT NULL,
@@ -240,6 +242,7 @@ CREATE TABLE IF NOT EXISTS vocab_words (
   example TEXT DEFAULT '',
   theme TEXT DEFAULT 'kitchen',
   mastered_by TEXT[] DEFAULT '{}',
+  emoji TEXT,
   updated_at BIGINT DEFAULT 0,
   PRIMARY KEY (id, family_code)
 );

@@ -423,6 +423,24 @@ function FamilyTreeSVG({ ancestors, onNodeClick }: { ancestors: Ancestor[]; onNo
 
 type AncestorForm = Omit<Ancestor, 'id'>
 
+// Derive year-only fields from the full DOB/death date so the tree node
+// header ({birthYear} – {deathYear}) keeps working without the user
+// duplicating the year by hand.
+function withDerivedYears(form: AncestorForm): AncestorForm {
+  const out: AncestorForm = { ...form }
+  if (form.solarBirthDate) {
+    const y = parseInt(form.solarBirthDate.slice(0, 4), 10)
+    if (!Number.isNaN(y)) out.birthYear = y
+  }
+  if (form.solarDeathDate) {
+    const y = parseInt(form.solarDeathDate.slice(0, 4), 10)
+    if (!Number.isNaN(y)) out.deathYear = y
+  } else {
+    out.deathYear = undefined
+  }
+  return out
+}
+
 const EMPTY_FORM: AncestorForm = {
   name: '', gender: 'male', relationship: '', birthYear: undefined, deathYear: undefined,
   solarBirthDate: '', solarDeathDate: '', lunarDeathDay: undefined, lunarDeathMonth: undefined,
@@ -475,19 +493,14 @@ function AncestorFormFields({
           placeholder="Ông nội, Cụ bà..." className={inputCls} />
       </div>
       <div>
-        <label className="text-xs text-amber-700 font-medium block mb-1">Năm sinh</label>
-        <input type="number" value={form.birthYear ?? ''} onChange={(e) => setForm((f) => ({ ...f, birthYear: e.target.value ? parseInt(e.target.value) : undefined }))}
-          placeholder="1920" className={inputCls} />
-      </div>
-      <div>
-        <label className="text-xs text-amber-700 font-medium block mb-1">Năm mất</label>
-        <input type="number" value={form.deathYear ?? ''} onChange={(e) => setForm((f) => ({ ...f, deathYear: e.target.value ? parseInt(e.target.value) : undefined }))}
-          placeholder="2005 (để trống nếu còn sống)" className={inputCls} />
-      </div>
-      <div className="col-span-2">
-        <label className="text-xs text-amber-700 font-medium block mb-1">Ngày sinh đầy đủ (dương lịch)</label>
+        <label className="text-xs text-amber-700 font-medium block mb-1">🎂 Ngày sinh (dương lịch)</label>
         <input type="date" value={form.solarBirthDate ?? ''} onChange={(e) => setForm((f) => ({ ...f, solarBirthDate: e.target.value }))}
           className={inputCls} />
+      </div>
+      <div>
+        <label className="text-xs text-amber-700 font-medium block mb-1">🕯️ Ngày mất (dương lịch)</label>
+        <input type="date" value={form.solarDeathDate ?? ''} onChange={(e) => setForm((f) => ({ ...f, solarDeathDate: e.target.value }))}
+          placeholder="Để trống nếu còn sống" className={inputCls} />
       </div>
       <div>
         <label className="text-xs text-amber-700 font-medium block mb-1">Ngày giỗ âm — Ngày</label>
@@ -498,11 +511,6 @@ function AncestorFormFields({
         <label className="text-xs text-amber-700 font-medium block mb-1">Ngày giỗ âm — Tháng</label>
         <input type="number" min={1} max={12} value={form.lunarDeathMonth ?? ''} onChange={(e) => setForm((f) => ({ ...f, lunarDeathMonth: e.target.value ? parseInt(e.target.value) : undefined }))}
           placeholder="7" className={inputCls} />
-      </div>
-      <div className="col-span-2">
-        <label className="text-xs text-amber-700 font-medium block mb-1">Ngày mất dương lịch (để tính đếm ngược)</label>
-        <input type="date" value={form.solarDeathDate ?? ''} onChange={(e) => setForm((f) => ({ ...f, solarDeathDate: e.target.value }))}
-          className={inputCls} />
       </div>
 
       {/* Extended profile */}
@@ -606,7 +614,7 @@ function AddAncestorModal({ ancestors, onClose }: { ancestors: Ancestor[]; onClo
 
   const submit = () => {
     if (!form.name.trim() || done) return
-    addAncestor({ ...form, name: form.name.trim() })
+    addAncestor({ ...withDerivedYears(form), name: form.name.trim() })
     if (addAnn && form.lunarDeathDay && form.lunarDeathMonth) {
       addAnniversary({
         name: `Giỗ ${form.name.trim()}`,
@@ -679,7 +687,7 @@ function EditAncestorModal({ ancestor, ancestors, onClose }: { ancestor: Ancesto
 
   const save = () => {
     if (!form.name.trim() || done) return
-    updateAncestor(ancestor.id, { ...form, name: form.name.trim() })
+    updateAncestor(ancestor.id, { ...withDerivedYears(form), name: form.name.trim() })
     setDone(true)
     setTimeout(onClose, 600)
   }

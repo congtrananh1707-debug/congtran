@@ -1227,6 +1227,125 @@ const JOBS: RawEntry[] = [
   'volunteer|tình nguyện viên|Hospital volunteer.',
 ]
 
+// Emoji map for common words — keyed lower-case. Adding emoji here makes
+// vocab cards more kid-friendly without bloating each entry. Unmatched words
+// just show no emoji.
+const WORD_EMOJI: Record<string, string> = {
+  // Food & kitchen
+  apple: '🍎', banana: '🍌', orange: '🍊', grape: '🍇', lemon: '🍋', mango: '🥭',
+  pear: '🍐', peach: '🍑', pineapple: '🍍', watermelon: '🍉', strawberry: '🍓',
+  cherry: '🍒', cup: '🥤', glass: '🥛', bowl: '🥣', plate: '🍽️', fork: '🍴',
+  spoon: '🥄', knife: '🔪', pot: '🍲', pan: '🍳', oven: '🔥', stove: '🔥',
+  fridge: '❄️', table: '🪑', chair: '🪑', salt: '🧂', sugar: '🍬', pepper: '🌶️',
+  oil: '🫒', butter: '🧈', cheese: '🧀', milk: '🥛', water: '💧', juice: '🧃',
+  tea: '🍵', coffee: '☕', soup: '🍲', rice: '🍚', noodles: '🍜', bread: '🍞',
+  cake: '🍰', cookie: '🍪', candy: '🍭', chocolate: '🍫', 'ice cream': '🍦',
+  egg: '🥚', meat: '🥩', chicken: '🍗', beef: '🥩', pork: '🥓', fish: '🐟',
+  shrimp: '🦐', vegetable: '🥬', tomato: '🍅', potato: '🥔', carrot: '🥕',
+  onion: '🧅', garlic: '🧄', cucumber: '🥒', lettuce: '🥬', cabbage: '🥬',
+  corn: '🌽', mushroom: '🍄', breakfast: '🥐', lunch: '🍱', dinner: '🍽️',
+  pizza: '🍕', burger: '🍔', sandwich: '🥪', hotdog: '🌭', sushi: '🍣',
+  pasta: '🍝', spaghetti: '🍝', salad: '🥗', fries: '🍟', taco: '🌮',
+  pancake: '🥞', waffle: '🧇', donut: '🍩', muffin: '🧁', biscuit: '🍪',
+  toast: '🍞', cereal: '🥣', yogurt: '🥛', honey: '🍯', dumpling: '🥟',
+  pho: '🍜', curry: '🍛', wine: '🍷', beer: '🍺', soda: '🥤', popcorn: '🍿',
+  pretzel: '🥨', flour: '🌾', wheat: '🌾', salmon: '🐟', tuna: '🐟',
+  lobster: '🦞', crab: '🦀', octopus: '🐙', squid: '🦑', oyster: '🦪',
+  bean: '🫘', peanut: '🥜', almond: '🥜', chili: '🌶️', ginger: '🫚',
+  // Nature
+  sun: '☀️', moon: '🌙', star: '⭐', sky: '🌌', cloud: '☁️', rain: '🌧️',
+  snow: '❄️', wind: '💨', storm: '⛈️', thunder: '⚡', lightning: '⚡',
+  rainbow: '🌈', tree: '🌳', flower: '🌸', grass: '🌱', leaf: '🍃',
+  branch: '🌿', seed: '🌱', forest: '🌲', mountain: '⛰️', hill: '⛰️',
+  river: '🏞️', lake: '🏞️', sea: '🌊', ocean: '🌊', beach: '🏖️',
+  island: '🏝️', cave: '🕳️', desert: '🏜️', volcano: '🌋', fire: '🔥',
+  smoke: '💨', ice: '🧊', spring: '🌸', summer: '☀️', autumn: '🍂',
+  winter: '❄️', sunshine: '☀️', sunrise: '🌅', sunset: '🌇',
+  // Animals
+  cat: '🐱', dog: '🐶', bird: '🐦', mouse: '🐭', hamster: '🐹', horse: '🐴',
+  cow: '🐮', pig: '🐷', sheep: '🐑', goat: '🐐', duck: '🦆', goose: '🦢',
+  rooster: '🐓', tiger: '🐯', lion: '🦁', elephant: '🐘', monkey: '🐵',
+  bear: '🐻', wolf: '🐺', fox: '🦊', deer: '🦌', zebra: '🦓', giraffe: '🦒',
+  kangaroo: '🦘', koala: '🐨', panda: '🐼', crocodile: '🐊', alligator: '🐊',
+  snake: '🐍', lizard: '🦎', frog: '🐸', turtle: '🐢', tortoise: '🐢',
+  butterfly: '🦋', bee: '🐝', ant: '🐜', spider: '🕷️', fly: '🪰',
+  mosquito: '🦟', worm: '🪱', snail: '🐌', shark: '🦈', whale: '🐋',
+  dolphin: '🐬', penguin: '🐧', eagle: '🦅', owl: '🦉', parrot: '🦜',
+  swan: '🦢', flamingo: '🦩', ostrich: '🦤', rhino: '🦏', hippo: '🦛',
+  camel: '🐪', bat: '🦇', squirrel: '🐿️', otter: '🦦', seal: '🦭',
+  jellyfish: '🪼', puppy: '🐶', kitten: '🐱', rabbit: '🐰', peacock: '🦚',
+  starfish: '⭐', seahorse: '🐴', pigeon: '🕊️', donkey: '🫏',
+  // Body
+  body: '🧍', head: '👤', hair: '💇', face: '😊', eye: '👁️', ear: '👂',
+  nose: '👃', mouth: '👄', lip: '👄', tooth: '🦷', tongue: '👅',
+  hand: '✋', finger: '☝️', thumb: '👍', arm: '💪', leg: '🦵', foot: '🦶',
+  toe: '🦶', heart: '❤️', brain: '🧠', bone: '🦴', muscle: '💪', blood: '🩸',
+  smile: '😊', laugh: '😂', cry: '😢', sleep: '😴', doctor: '👨‍⚕️',
+  nurse: '👩‍⚕️', medicine: '💊', pill: '💊', hospital: '🏥',
+  // Colors (use a square emoji per color — orange & rainbow handled above)
+  red: '🟥', blue: '🟦', green: '🟩', yellow: '🟨',
+  purple: '🟪', pink: '🩷', black: '⬛', white: '⬜', brown: '🟫',
+  gold: '🥇', silver: '🥈',
+  // Numbers
+  one: '1️⃣', two: '2️⃣', three: '3️⃣', four: '4️⃣', five: '5️⃣',
+  six: '6️⃣', seven: '7️⃣', eight: '8️⃣', nine: '9️⃣', ten: '🔟',
+  zero: '0️⃣', hundred: '💯',
+  // Clothes
+  shirt: '👕', 't-shirt': '👕', pants: '👖', jeans: '👖', shorts: '🩳',
+  skirt: '👗', dress: '👗', suit: '🤵', tie: '👔', sweater: '🧥',
+  jacket: '🧥', coat: '🧥', hoodie: '🧥', pajamas: '👘', socks: '🧦',
+  sock: '🧦', shoe: '👟', sneaker: '👟', boot: '🥾', sandal: '🩴',
+  hat: '🎩', cap: '🧢', helmet: '⛑️', scarf: '🧣', glove: '🧤',
+  glasses: '👓', sunglasses: '🕶️', watch: '⌚', ring: '💍', earring: '💎',
+  // Transport
+  car: '🚗', bike: '🚲', bicycle: '🚲', motorcycle: '🏍️', scooter: '🛴',
+  bus: '🚌', truck: '🚚', van: '🚐', taxi: '🚕', train: '🚆',
+  subway: '🚇', tram: '🚊', plane: '✈️', airplane: '✈️', helicopter: '🚁',
+  jet: '🛩️', rocket: '🚀', boat: '⛵', ship: '🚢', yacht: '🛥️',
+  submarine: '🚤', sailboat: '⛵', ferry: '⛴️', skateboard: '🛹',
+  tractor: '🚜', crane: '🏗️', 'fire truck': '🚒', ambulance: '🚑',
+  'police car': '🚓', 'school bus': '🚌', ticket: '🎫', luggage: '🧳',
+  suitcase: '🧳', map: '🗺️',
+  // Jobs
+  teacher: '👩‍🏫', student: '🧑‍🎓', professor: '👨‍🏫', doctor_job: '👨‍⚕️',
+  engineer: '👷', scientist: '🧑‍🔬', researcher: '🧑‍🔬', programmer: '👨‍💻',
+  designer: '🎨', architect: '👷', artist: '🎨', painter: '🎨',
+  musician: '🎼', singer: '🎤', dancer: '💃', actor: '🎭', actress: '🎭',
+  writer: '✍️', chef: '👨‍🍳', cook: '👨‍🍳', baker: '🧑‍🍳', farmer: '👨‍🌾',
+  fisherman: '🎣', gardener: '🌱', lawyer: '⚖️', judge: '👨‍⚖️',
+  police: '👮', 'police officer': '👮', firefighter: '👨‍🚒',
+  soldier: '🪖', sailor: '⚓', pilot: '👨‍✈️', driver: '🚗', mechanic: '🔧',
+  electrician: '⚡', plumber: '🚰', carpenter: '🔨', tailor: '🧵',
+  barber: '💇', hairdresser: '💇', cashier: '🛒', manager: '💼',
+  banker: '💵', accountant: '🧾', secretary: '📋', astronaut: '🧑‍🚀',
+  veterinarian: '🐾', vet: '🐾', king: '👑', queen: '👑', prince: '🤴',
+  princess: '👸',
+  // Space
+  earth: '🌍', mars: '🔴', jupiter: '🪐', saturn: '🪐', mercury: '☿',
+  venus: '♀️', uranus: '🌐', neptune: '🌐', pluto: '🌑', comet: '☄️',
+  meteor: '☄️', planet: '🪐', galaxy: '🌌', universe: '🌌',
+  // School
+  school: '🏫', class: '🧑‍🏫', classroom: '🏫', book: '📕', textbook: '📘',
+  notebook: '📓', pen: '🖊️', pencil: '✏️', eraser: '🧽', ruler: '📏',
+  paper: '📄', page: '📄', bag: '👜', backpack: '🎒', desk: '🪑',
+  board: '🖼️', chalk: '🖍️', marker: '🖊️', crayon: '🖍️', paint: '🎨',
+  brush: '🖌️', scissors: '✂️', glue: '🪣', tape: '📎', math: '🧮',
+  science: '🔬', history: '📜', geography: '🗺️', art: '🎨', music: '🎵',
+  english: '🅰️', vietnamese: '🇻🇳', language: '🗣️', library: '📚',
+  gym: '🏋️', playground: '🛝', lab: '🔬', uniform: '👔', schedule: '🗓️',
+  // Family
+  family: '👨‍👩‍👧‍👦', father: '👨', mother: '👩', dad: '👨', mom: '👩',
+  parent: '👪', son: '👦', daughter: '👧', child: '🧒', kid: '🧒',
+  baby: '👶', brother: '🧑', sister: '👩', sibling: '👫', twin: '👯',
+  grandfather: '👴', grandmother: '👵', grandpa: '👴', grandma: '👵',
+  uncle: '🧔', aunt: '👩', cousin: '🧑', husband: '🤵', wife: '👰',
+  home: '🏠', house: '🏠', apartment: '🏢', room: '🚪', bedroom: '🛏️',
+  bathroom: '🛁', door: '🚪', window: '🪟', bed: '🛏️', pillow: '🛌',
+  sofa: '🛋️', lamp: '💡', clock: '⏰', mirror: '🪞', love: '❤️',
+  hug: '🤗', kiss: '💋', gift: '🎁', present: '🎁', birthday: '🎂',
+  party: '🎉',
+}
+
 function expand(theme: string, raw: RawEntry[]): VocabWord[] {
   // Dedupe by word within the theme so paste-typos don't double up.
   const seen = new Set<string>()
@@ -1244,6 +1363,7 @@ function expand(theme: string, raw: RawEntry[]): VocabWord[] {
       example: (example ?? '').trim(),
       theme,
       masteredBy: [],
+      emoji: WORD_EMOJI[key],
     })
   })
   return out

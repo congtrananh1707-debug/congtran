@@ -98,7 +98,7 @@ function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string })
                   isWrong ? 'bg-red-100 text-red-700' :
                   'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-violet-50 hover:text-violet-700'
                 }`}>
-                {w.word}
+                {w.emoji ? <span className="mr-1">{w.emoji}</span> : null}{w.word}
               </motion.button>
             )
           })}
@@ -240,12 +240,19 @@ export default function EnglishAdventure() {
               <motion.div key={word.id} initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: i * 0.08 }}
                 className={`rounded-2xl p-4 border-2 transition-all ${mastered ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'}`}>
                 <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <p className="text-xl font-bold text-gray-800 dark:text-white">{word.word}</p>
-                    <p className="text-sm font-medium text-violet-600 dark:text-violet-400">{word.translation}</p>
+                  <div className="flex items-center gap-3 min-w-0">
+                    {word.emoji && (
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-100 to-blue-100 dark:from-violet-900/40 dark:to-blue-900/40 flex items-center justify-center text-3xl flex-shrink-0">
+                        {word.emoji}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-xl font-bold text-gray-800 dark:text-white truncate">{word.word}</p>
+                      <p className="text-sm font-medium text-violet-600 dark:text-violet-400 truncate">{word.translation}</p>
+                    </div>
                   </div>
                   <button onClick={() => speak(word.word)}
-                    className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 p-2 rounded-xl hover:bg-blue-200 transition-colors text-lg"
+                    className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 p-2 rounded-xl hover:bg-blue-200 transition-colors text-lg flex-shrink-0"
                     title="Nghe phát âm">
                     🔊
                   </button>
@@ -327,6 +334,7 @@ export default function EnglishAdventure() {
             {themeWords.map((w) => (
               <div key={w.id} className="bg-white dark:bg-gray-800 rounded-xl p-3 flex items-center gap-3 border border-gray-100 dark:border-gray-700 shadow-sm">
                 <button onClick={() => speak(w.word)} className="text-blue-500 text-lg flex-shrink-0">🔊</button>
+                {w.emoji && <span className="text-2xl flex-shrink-0">{w.emoji}</span>}
                 <div className="flex-1 min-w-0">
                   <span className="font-medium text-gray-800 dark:text-white">{w.word}</span>
                   <span className="text-gray-400 mx-2">→</span>

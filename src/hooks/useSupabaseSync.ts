@@ -199,12 +199,13 @@ const TABLE_MAP = [
     table: 'vocab_words',
     getRows: (s: SyncState) => s.vocabWords.map((v) => ({
       id: v.id, word: v.word, translation: v.translation, example: v.example,
-      theme: v.theme, mastered_by: v.masteredBy,
+      theme: v.theme, mastered_by: v.masteredBy, emoji: v.emoji ?? null,
     })),
     applyRows: (rows: any[]) => ({
       vocabWords: rows.map((r) => ({
         id: r.id, word: r.word, translation: r.translation ?? '', example: r.example ?? '',
         theme: r.theme ?? 'kitchen', masteredBy: r.mastered_by ?? [],
+        emoji: r.emoji ?? undefined,
       })),
     }),
   },
