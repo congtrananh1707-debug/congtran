@@ -9,6 +9,7 @@ const WHEEL_COLORS = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#D
 export default function MagicWheel() {
   const wheelItems = useStore((s) => s.wheelItems)
   const addWheelItem = useStore((s) => s.addWheelItem)
+  const updateWheelItem = useStore((s) => s.updateWheelItem)
   const removeWheelItem = useStore((s) => s.removeWheelItem)
   const currentMemberId = useStore((s) => s.currentMemberId)
   const members = useStore((s) => s.members)
@@ -20,6 +21,7 @@ export default function MagicWheel() {
   const [rotation, setRotation] = useState(0)
   const [result, setResult] = useState<WheelItem | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ label: '', emoji: '🎯' })
   const [addDone, setAddDone] = useState(false)
   const spinRef = useRef(0)
@@ -46,13 +48,25 @@ export default function MagicWheel() {
     }, 3500)
   }
 
+  const openEdit = (id: string) => {
+    const it = wheelItems.find((w) => w.id === id)
+    if (!it) return
+    setEditingId(id)
+    setForm({ label: it.label, emoji: it.emoji })
+    setShowAdd(true)
+  }
+
   const submit = () => {
     if (!form.label.trim() || addDone) return
-    addWheelItem(category, form.label.trim(), form.emoji)
+    if (editingId) {
+      updateWheelItem(editingId, { label: form.label.trim(), emoji: form.emoji })
+    } else {
+      addWheelItem(category, form.label.trim(), form.emoji)
+    }
     setAddDone(true)
     setTimeout(() => {
       setForm({ label: '', emoji: '🎯' })
-      setShowAdd(false); setAddDone(false)
+      setShowAdd(false); setEditingId(null); setAddDone(false)
     }, 600)
   }
 
@@ -191,7 +205,10 @@ export default function MagicWheel() {
               </div>
               <span className="text-sm text-gray-700 flex-1 truncate">{item.label}</span>
               {isParent && (
-                <button onClick={() => removeWheelItem(item.id)} className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs">✕</button>
+                <>
+                  <button onClick={() => openEdit(item.id)} className="text-gray-300 hover:text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs" title="Sửa">✏️</button>
+                  <button onClick={() => removeWheelItem(item.id)} className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-xs" title="Xóa">✕</button>
+                </>
               )}
             </div>
           ))}

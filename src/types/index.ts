@@ -198,7 +198,7 @@ export type Ancestor = {
   relationship: string      // free text: 'Ông nội', 'Cụ nội', etc.
   birthYear?: number
   deathYear?: number
-  solarBirthDate?: string   // YYYY-MM-DD
+  solarBirthDate?: string   // YYYY-MM-DD (full DOB)
   solarDeathDate?: string   // YYYY-MM-DD
   lunarDeathDay?: number    // 1-30
   lunarDeathMonth?: number  // 1-12
@@ -206,6 +206,11 @@ export type Ancestor = {
   photoUrl?: string
   parentIds: string[]       // IDs of parent ancestors in the tree
   spouseId?: string
+  // Extended profile fields
+  phone?: string            // contact number (for living relatives)
+  address?: string          // current residence
+  hometown?: string         // birthplace / quê quán
+  occupation?: string       // nghề nghiệp
 }
 
 export type Anniversary = {
@@ -273,12 +278,22 @@ export const NOTE_COLORS = [
   'bg-orange-200 border-orange-300',
 ]
 
-export const ENGLISH_THEMES = ['kitchen', 'nature', 'animals', 'school', 'family', 'space']
+export const ENGLISH_THEMES = [
+  'kitchen', 'nature', 'animals', 'school', 'family', 'space',
+  'body', 'food', 'colors', 'numbers', 'clothes', 'transport', 'jobs',
+]
 export const ENGLISH_THEME_LABELS: Record<string, { label: string; emoji: string }> = {
-  kitchen: { label: 'Nhà bếp',     emoji: '🍳' },
-  nature:  { label: 'Thiên nhiên', emoji: '🌿' },
-  animals: { label: 'Động vật',    emoji: '🐾' },
-  school:  { label: 'Trường học',  emoji: '🏫' },
-  family:  { label: 'Gia đình',    emoji: '👨‍👩‍👧' },
-  space:   { label: 'Vũ trụ',      emoji: '🚀' },
+  kitchen:   { label: 'Nhà bếp',     emoji: '🍳' },
+  nature:    { label: 'Thiên nhiên', emoji: '🌿' },
+  animals:   { label: 'Động vật',    emoji: '🐾' },
+  school:    { label: 'Trường học',  emoji: '🏫' },
+  family:    { label: 'Gia đình',    emoji: '👨‍👩‍👧' },
+  space:     { label: 'Vũ trụ',      emoji: '🚀' },
+  body:      { label: 'Cơ thể',      emoji: '🧠' },
+  food:      { label: 'Đồ ăn',       emoji: '🍔' },
+  colors:    { label: 'Màu sắc',     emoji: '🎨' },
+  numbers:   { label: 'Con số',      emoji: '🔢' },
+  clothes:   { label: 'Quần áo',     emoji: '👕' },
+  transport: { label: 'Phương tiện', emoji: '🚗' },
+  jobs:      { label: 'Nghề nghiệp', emoji: '💼' },
 }

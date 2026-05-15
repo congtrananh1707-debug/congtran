@@ -258,6 +258,11 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 );
 
 -- Ancestors (Gia phả)
+-- MIGRATION for existing tables (run once):
+--   ALTER TABLE ancestors ADD COLUMN IF NOT EXISTS phone TEXT;
+--   ALTER TABLE ancestors ADD COLUMN IF NOT EXISTS address TEXT;
+--   ALTER TABLE ancestors ADD COLUMN IF NOT EXISTS hometown TEXT;
+--   ALTER TABLE ancestors ADD COLUMN IF NOT EXISTS occupation TEXT;
 CREATE TABLE IF NOT EXISTS ancestors (
   id TEXT NOT NULL,
   family_code TEXT NOT NULL,
@@ -274,6 +279,10 @@ CREATE TABLE IF NOT EXISTS ancestors (
   photo_url TEXT,
   parent_ids TEXT[] DEFAULT '{}',
   spouse_id TEXT,
+  phone TEXT,
+  address TEXT,
+  hometown TEXT,
+  occupation TEXT,
   updated_at BIGINT DEFAULT 0,
   PRIMARY KEY (id, family_code)
 );

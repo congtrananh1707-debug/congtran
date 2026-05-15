@@ -61,11 +61,12 @@ function generateFromMembers(members: Member[], createdBy: string): QuizQuestion
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export default function FamilyQuiz() {
-  const questions         = useStore((s) => s.quizQuestions)
-  const members           = useStore((s) => s.members)
-  const currentMemberId   = useStore((s) => s.currentMemberId)
-  const addQuizQuestion   = useStore((s) => s.addQuizQuestion)
-  const removeQuizQuestion= useStore((s) => s.removeQuizQuestion)
+  const questions          = useStore((s) => s.quizQuestions)
+  const members            = useStore((s) => s.members)
+  const currentMemberId    = useStore((s) => s.currentMemberId)
+  const addQuizQuestion    = useStore((s) => s.addQuizQuestion)
+  const updateQuizQuestion = useStore((s) => s.updateQuizQuestion)
+  const removeQuizQuestion = useStore((s) => s.removeQuizQuestion)
 
   const me = members.find((m) => m.id === currentMemberId)
   const isParent = me ? isParentRole(me.role) : false
@@ -76,6 +77,7 @@ export default function FamilyQuiz() {
   const [selected, setSelected] = useState<number | null>(null)
   const [score, setScore] = useState(0)
   const [showAdd, setShowAdd] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ question: '', answers: ['', '', '', ''], correctIndex: 0 })
   const [autoMsg, setAutoMsg] = useState('')
   const [submitDone, setSubmitDone] = useState(false)
@@ -102,13 +104,32 @@ export default function FamilyQuiz() {
     else { setCurrentIdx((i) => i + 1); setSelected(null) }
   }
 
+  const openEdit = (id: string) => {
+    const q = questions.find((x) => x.id === id)
+    if (!q) return
+    setEditingId(id)
+    // Quiz expects 4 answers; pad/truncate to keep the UI simple
+    const a = [...q.answers, '', '', '', ''].slice(0, 4)
+    setForm({ question: q.question, answers: a, correctIndex: q.correctIndex })
+    setShowAdd(true)
+  }
+
   const submitQuestion = () => {
     if (!form.question.trim() || form.answers.some((a) => !a.trim()) || submitDone) return
-    addQuizQuestion({ question: form.question.trim(), answers: form.answers.map((a) => a.trim()), correctIndex: form.correctIndex, createdBy: currentMemberId || '' })
+    const payload = {
+      question: form.question.trim(),
+      answers: form.answers.map((a) => a.trim()),
+      correctIndex: form.correctIndex,
+    }
+    if (editingId) {
+      updateQuizQuestion(editingId, payload)
+    } else {
+      addQuizQuestion({ ...payload, createdBy: currentMemberId || '' })
+    }
     setSubmitDone(true)
     setTimeout(() => {
       setForm({ question: '', answers: ['', '', '', ''], correctIndex: 0 })
-      setShowAdd(false); setSubmitDone(false)
+      setShowAdd(false); setEditingId(null); setSubmitDone(false)
     }, 600)
   }
 
@@ -288,8 +309,10 @@ export default function FamilyQuiz() {
                 ))}
                 <p className="text-xs text-gray-400 mb-3">Bấm vào chữ cái để chọn đáp án đúng</p>
                 <div className="flex gap-2">
-                  <button onClick={submitQuestion} disabled={!form.question.trim() || form.answers.some((a) => !a.trim()) || submitDone} className="bg-violet-600 text-white px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50 transition-all">{submitDone ? '✅ Đã thêm!' : 'Thêm'}</button>
-                  <button onClick={() => setShowAdd(false)} disabled={submitDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
+                  <button onClick={submitQuestion} disabled={!form.question.trim() || form.answers.some((a) => !a.trim()) || submitDone} className="bg-violet-600 text-white px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50 transition-all">
+                    {submitDone ? '✅ Đã lưu!' : editingId ? 'Lưu thay đổi' : 'Thêm'}
+                  </button>
+                  <button onClick={() => { setShowAdd(false); setEditingId(null) }} disabled={submitDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
                 </div>
               </motion.div>
             )}
@@ -307,7 +330,10 @@ export default function FamilyQuiz() {
                     <p className="text-xs text-emerald-600 mt-0.5">✅ {q.answers[q.correctIndex]}</p>
                     <p className="text-xs text-gray-400">{isAuto ? '🤖 Tự động' : creator ? `${creator.emoji} ${creator.name}` : ''}</p>
                   </div>
-                  <button onClick={() => removeQuizQuestion(q.id)} className="text-gray-300 hover:text-red-400 text-sm flex-shrink-0">🗑</button>
+                  <div className="flex flex-col gap-1 flex-shrink-0">
+                    <button onClick={() => openEdit(q.id)} className="text-gray-300 hover:text-violet-500 text-sm" title="Sửa">✏️</button>
+                    <button onClick={() => removeQuizQuestion(q.id)} className="text-gray-300 hover:text-red-400 text-sm" title="Xóa">🗑</button>
+                  </div>
                 </div>
               )
             })}

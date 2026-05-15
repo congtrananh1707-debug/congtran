@@ -217,6 +217,8 @@ const TABLE_MAP = [
       lunar_death_day: a.lunarDeathDay ?? null, lunar_death_month: a.lunarDeathMonth ?? null,
       biography: a.biography ?? null, photo_url: a.photoUrl ?? null,
       parent_ids: a.parentIds, spouse_id: a.spouseId ?? null,
+      phone: a.phone ?? null, address: a.address ?? null,
+      hometown: a.hometown ?? null, occupation: a.occupation ?? null,
     })),
     applyRows: (rows: any[]) => ({
       ancestors: rows.map((r) => ({
@@ -226,6 +228,8 @@ const TABLE_MAP = [
         lunarDeathDay: r.lunar_death_day ?? undefined, lunarDeathMonth: r.lunar_death_month ?? undefined,
         biography: r.biography ?? undefined, photoUrl: r.photo_url ?? undefined,
         parentIds: r.parent_ids ?? [], spouseId: r.spouse_id ?? undefined,
+        phone: r.phone ?? undefined, address: r.address ?? undefined,
+        hometown: r.hometown ?? undefined, occupation: r.occupation ?? undefined,
       })),
     }),
   },

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../../store/useStore'
 import { formatDateTime } from '../../utils/helpers'
@@ -37,11 +37,20 @@ function fmtCountdown(ms: number) {
   return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
 }
 
+type FormState = {
+  title: string
+  description: string
+  type: QuestType
+  tokens: number
+  assignedTo: string[]
+}
+
 export default function QuestLog() {
   const quests         = useStore((s) => s.quests)
   const members        = useStore((s) => s.members)
   const currentMemberId= useStore((s) => s.currentMemberId)
   const addQuest       = useStore((s) => s.addQuest)
+  const updateQuest    = useStore((s) => s.updateQuest)
   const completeQuest  = useStore((s) => s.completeQuest)
   const approveQuest   = useStore((s) => s.approveQuest)
   const rejectQuest    = useStore((s) => s.rejectQuest)
@@ -52,38 +61,102 @@ export default function QuestLog() {
 
   const [filter, setFilter] = useState<'all' | QuestType | 'mine'>('mine')
   const [showAdd, setShowAdd] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [showConfetti, setShowConfetti] = useState(false)
   const [isFlash, setIsFlash] = useState(false)
   const [flashMinutes, setFlashMinutes] = useState(30)
   const [addDone, setAddDone] = useState(false)
-  const [form, setForm] = useState({
-    title: '', description: '', type: 'daily' as QuestType,
-    tokens: 10, assignedTo: [currentMemberId || ''],
+
+  // Sensible default: first child if any, else empty (forces user choice)
+  const defaultAssignee = useMemo(() => {
+    const firstChild = members.find((m) => m.role === 'child')
+    return firstChild?.id ?? members[0]?.id ?? ''
+  }, [members])
+
+  const emptyForm = (): FormState => ({
+    title: '', description: '', type: 'daily', tokens: 10,
+    assignedTo: defaultAssignee ? [defaultAssignee] : [],
   })
+
+  const [form, setForm] = useState<FormState>(emptyForm)
 
   const now = useCountdown()
 
   const flashQuests = quests.filter((q) => q.flashDeadline && q.status === 'active')
   const filtered = quests.filter((q) => {
-    if (q.flashDeadline && q.status === 'active') return false  // shown separately
+    if (q.flashDeadline && q.status === 'active') return false
     if (filter === 'mine') return q.assignedTo.includes(currentMemberId || '') || (isParent && q.status === 'pending')
     if (filter === 'all')  return true
     return q.type === filter
   })
 
-  const children = members.filter((m) => m.role === 'child')
+  const toggleAssignee = (id: string) => {
+    setForm((f) => ({
+      ...f,
+      assignedTo: f.assignedTo.includes(id)
+        ? f.assignedTo.filter((x) => x !== id)
+        : [...f.assignedTo, id],
+    }))
+  }
+
+  const assignAll = () => setForm((f) => ({ ...f, assignedTo: members.map((m) => m.id) }))
+  const assignNone = () => setForm((f) => ({ ...f, assignedTo: [] }))
+
+  const openAdd = () => {
+    setEditingId(null)
+    setForm(emptyForm())
+    setIsFlash(false)
+    setShowAdd(true)
+  }
+
+  const openEdit = (questId: string) => {
+    const q = quests.find((x) => x.id === questId)
+    if (!q) return
+    setEditingId(questId)
+    setForm({
+      title: q.title,
+      description: q.description,
+      type: q.type,
+      tokens: q.tokens,
+      assignedTo: q.assignedTo,
+    })
+    setIsFlash(!!q.flashDeadline)
+    if (q.flashDeadline) {
+      const remaining = Math.max(15, Math.round((q.flashDeadline - Date.now()) / 60000))
+      setFlashMinutes(remaining)
+    }
+    setShowAdd(true)
+  }
+
+  const closeForm = () => {
+    setShowAdd(false)
+    setEditingId(null)
+    setIsFlash(false)
+    setAddDone(false)
+  }
 
   const submit = () => {
-    if (!form.title.trim() || addDone) return
-    addQuest({
-      ...form,
-      createdBy: currentMemberId || '',
-      flashDeadline: isFlash ? Date.now() + flashMinutes * 60 * 1000 : undefined,
-    })
+    if (!form.title.trim() || form.assignedTo.length === 0 || addDone) return
+    if (editingId) {
+      updateQuest(editingId, {
+        title: form.title,
+        description: form.description,
+        type: form.type,
+        tokens: form.tokens,
+        assignedTo: form.assignedTo,
+        flashDeadline: isFlash ? Date.now() + flashMinutes * 60 * 1000 : undefined,
+      })
+    } else {
+      addQuest({
+        ...form,
+        createdBy: currentMemberId || '',
+        flashDeadline: isFlash ? Date.now() + flashMinutes * 60 * 1000 : undefined,
+      })
+    }
     setAddDone(true)
     setTimeout(() => {
-      setShowAdd(false); setIsFlash(false); setAddDone(false)
-      setForm({ title: '', description: '', type: 'daily', tokens: 10, assignedTo: [currentMemberId || ''] })
+      setForm(emptyForm())
+      closeForm()
     }, 600)
   }
 
@@ -101,8 +174,8 @@ export default function QuestLog() {
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white">⚔️ Nhật ký nhiệm vụ</h1>
           <p className="text-gray-500 text-sm">{quests.filter((q) => q.status === 'active').length} nhiệm vụ đang chờ</p>
         </div>
-        {isParent && (
-          <button onClick={() => setShowAdd(true)} className="bg-violet-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-violet-700">
+        {isParent && !showAdd && (
+          <button onClick={openAdd} className="bg-violet-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-violet-700">
             + Tạo nhiệm vụ
           </button>
         )}
@@ -135,7 +208,7 @@ export default function QuestLog() {
                           </span>
                         </div>
                         {q.description && <p className="text-sm text-gray-500 mb-1">{q.description}</p>}
-                        <div className="text-xs text-gray-400 flex gap-3">
+                        <div className="text-xs text-gray-400 flex gap-3 flex-wrap">
                           <span>🪙 {q.tokens} xu</span>
                           <span>→ {assignedMembers.map((m) => `${m.emoji} ${m.name}`).join(', ')}</span>
                         </div>
@@ -148,9 +221,14 @@ export default function QuestLog() {
                           </button>
                         )}
                         {isParent && (
-                          <button onClick={() => removeQuest(q.id)} className="text-gray-300 hover:text-red-400 text-xs px-2 py-1.5 rounded-xl hover:bg-red-50">
-                            🗑
-                          </button>
+                          <>
+                            <button onClick={() => openEdit(q.id)} className="text-gray-400 hover:text-violet-600 text-xs px-2 py-1.5 rounded-xl hover:bg-violet-50">
+                              ✏️
+                            </button>
+                            <button onClick={() => removeQuest(q.id)} className="text-gray-300 hover:text-red-400 text-xs px-2 py-1.5 rounded-xl hover:bg-red-50">
+                              🗑
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -162,20 +240,22 @@ export default function QuestLog() {
         )}
       </AnimatePresence>
 
-      {/* Add Quest Form */}
+      {/* Add / Edit Quest Form */}
       <AnimatePresence>
         {showAdd && (
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
             className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-md border border-gray-100 dark:border-gray-700 mb-5"
           >
-            <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-4">✨ Tạo nhiệm vụ mới</h3>
+            <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-4">
+              {editingId ? '✏️ Sửa nhiệm vụ' : '✨ Tạo nhiệm vụ mới'}
+            </h3>
             <div className="space-y-3">
               <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
                 placeholder="Tên nhiệm vụ..." className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 text-sm" />
               <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
                 placeholder="Mô tả (tuỳ chọn)..." rows={2}
                 className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 text-sm resize-none" />
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-400 block mb-1">Loại</label>
                   <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as QuestType })}
@@ -191,19 +271,42 @@ export default function QuestLog() {
                     onChange={(e) => setForm({ ...form, tokens: parseInt(e.target.value) || 1 })}
                     className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm" />
                 </div>
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">Giao cho</label>
-                  <select value={form.assignedTo[0] || ''}
-                    onChange={(e) => setForm({ ...form, assignedTo: e.target.value === 'all' ? members.map((m) => m.id) : [e.target.value] })}
-                    className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm">
-                    {children.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}
-                    <option value="all">Cả nhà</option>
-                  </select>
+              </div>
+
+              {/* Assignee multi-select — shows ALL members, not just children */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-gray-400">Giao cho ({form.assignedTo.length})</label>
+                  <div className="flex gap-2 text-xs">
+                    <button onClick={assignAll} className="text-violet-600 hover:underline">Cả nhà</button>
+                    <button onClick={assignNone} className="text-gray-400 hover:underline">Bỏ chọn</button>
+                  </div>
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {members.map((m) => {
+                    const selected = form.assignedTo.includes(m.id)
+                    return (
+                      <button key={m.id} onClick={() => toggleAssignee(m.id)} type="button"
+                        className={`flex items-center gap-2 p-2 rounded-xl border-2 text-sm transition-all ${
+                          selected
+                            ? 'border-violet-400 bg-violet-50 dark:bg-violet-900/30'
+                            : 'border-gray-200 dark:border-gray-600 hover:border-violet-300'
+                        }`}
+                      >
+                        <span className="text-lg">{m.emoji}</span>
+                        <span className="text-gray-700 dark:text-gray-200 truncate">{m.name}</span>
+                        {selected && <span className="ml-auto text-violet-500">✓</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+                {form.assignedTo.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-1">⚠️ Chọn ít nhất 1 thành viên</p>
+                )}
               </div>
 
               {/* Flash Quest toggle */}
-              <div className={`rounded-2xl p-3 border-2 transition-colors ${isFlash ? 'border-orange-300 bg-orange-50' : 'border-gray-200'}`}>
+              <div className={`rounded-2xl p-3 border-2 transition-colors ${isFlash ? 'border-orange-300 bg-orange-50' : 'border-gray-200 dark:border-gray-600'}`}>
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input type="checkbox" checked={isFlash} onChange={(e) => setIsFlash(e.target.checked)} className="w-4 h-4 accent-orange-500" />
                   <div>
@@ -227,9 +330,11 @@ export default function QuestLog() {
               </div>
 
               <div className="flex gap-2 justify-end">
-                <button onClick={() => { setShowAdd(false); setIsFlash(false) }} disabled={addDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
-                <button onClick={submit} disabled={!form.title.trim() || addDone} className="bg-violet-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-violet-700 disabled:opacity-50 transition-all">
-                  {addDone ? '✅ Đã tạo!' : 'Tạo nhiệm vụ'}
+                <button onClick={closeForm} disabled={addDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
+                <button onClick={submit}
+                  disabled={!form.title.trim() || form.assignedTo.length === 0 || addDone}
+                  className="bg-violet-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-violet-700 disabled:opacity-50 transition-all">
+                  {addDone ? '✅ Đã lưu!' : editingId ? 'Lưu thay đổi' : 'Tạo nhiệm vụ'}
                 </button>
               </div>
             </div>
@@ -283,9 +388,9 @@ export default function QuestLog() {
                     <span className={`text-xs px-2 py-0.5 rounded-full ${statusCfg.color}`}>{statusCfg.label}</span>
                   </div>
                   {q.description && <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">{q.description}</p>}
-                  <div className="flex items-center gap-3 text-xs text-gray-400">
+                  <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
                     <span>🪙 {q.tokens} xu</span>
-                    <span>→ {assignedMembers.map((m) => `${m.emoji} ${m.name}`).join(', ')}</span>
+                    <span>→ {assignedMembers.map((m) => `${m.emoji} ${m.name}`).join(', ') || '—'}</span>
                     {q.completedAt && <span>{formatDateTime(q.completedAt)}</span>}
                   </div>
                   {completedBy && q.status === 'pending' && (
@@ -314,9 +419,14 @@ export default function QuestLog() {
                     </>
                   )}
                   {isParent && (
-                    <button onClick={() => removeQuest(q.id)} className="text-gray-300 hover:text-red-400 text-xs px-2 py-1.5 rounded-xl hover:bg-red-50">
-                      🗑
-                    </button>
+                    <>
+                      <button onClick={() => openEdit(q.id)} className="text-gray-400 hover:text-violet-600 text-xs px-2 py-1.5 rounded-xl hover:bg-violet-50">
+                        ✏️ Sửa
+                      </button>
+                      <button onClick={() => removeQuest(q.id)} className="text-gray-300 hover:text-red-400 text-xs px-2 py-1.5 rounded-xl hover:bg-red-50">
+                        🗑
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

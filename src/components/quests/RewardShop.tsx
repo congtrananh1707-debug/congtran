@@ -18,16 +18,36 @@ export default function RewardShop() {
   const children = members.filter((m) => m.role === 'child')
 
   const [showAdd, setShowAdd] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', emoji: '🎁', tokenCost: 50 })
   const [redeemFor, setRedeemFor] = useState<string | null>(null)
   const [toast, setToast] = useState('')
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500) }
 
+  const openAdd = () => {
+    setEditingId(null)
+    setForm({ name: '', emoji: '🎁', tokenCost: 50 })
+    setShowAdd(true)
+  }
+
+  const openEdit = (id: string) => {
+    const r = rewards.find((x) => x.id === id)
+    if (!r) return
+    setEditingId(id)
+    setForm({ name: r.name, emoji: r.emoji, tokenCost: r.tokenCost })
+    setShowAdd(true)
+  }
+
   const submit = () => {
     if (!form.name.trim()) return
-    addReward(form.name.trim(), form.emoji, form.tokenCost)
+    if (editingId) {
+      updateReward(editingId, { name: form.name.trim(), emoji: form.emoji, tokenCost: form.tokenCost })
+    } else {
+      addReward(form.name.trim(), form.emoji, form.tokenCost)
+    }
     setForm({ name: '', emoji: '🎁', tokenCost: 50 })
+    setEditingId(null)
     setShowAdd(false)
   }
 
@@ -57,8 +77,8 @@ export default function RewardShop() {
           <h1 className="text-2xl font-bold text-gray-800">🎁 Cửa hàng phần thưởng</h1>
           {!isParent && me && <p className="text-amber-600 font-semibold mt-0.5">🪙 Bạn có {me.tokens} xu</p>}
         </div>
-        {isParent && (
-          <button onClick={() => setShowAdd(true)} className="bg-amber-500 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-amber-600">
+        {isParent && !showAdd && (
+          <button onClick={openAdd} className="bg-amber-500 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-amber-600">
             + Thêm phần thưởng
           </button>
         )}
@@ -85,7 +105,7 @@ export default function RewardShop() {
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
             className="bg-white rounded-3xl p-5 shadow-md border border-gray-100 mb-5"
           >
-            <h3 className="font-bold text-gray-700 mb-4">✨ Thêm phần thưởng mới</h3>
+            <h3 className="font-bold text-gray-700 mb-4">{editingId ? '✏️ Sửa phần thưởng' : '✨ Thêm phần thưởng mới'}</h3>
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
                 <label className="text-xs text-gray-400 block mb-1">Tên phần thưởng</label>
@@ -108,8 +128,10 @@ export default function RewardShop() {
               </div>
             </div>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowAdd(false)} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100">Hủy</button>
-              <button onClick={submit} className="bg-amber-500 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-amber-600">Thêm</button>
+              <button onClick={() => { setShowAdd(false); setEditingId(null) }} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100">Hủy</button>
+              <button onClick={submit} className="bg-amber-500 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-amber-600">
+                {editingId ? 'Lưu thay đổi' : 'Thêm'}
+              </button>
             </div>
           </motion.div>
         )}
@@ -172,7 +194,10 @@ export default function RewardShop() {
                     className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-2 rounded-xl text-sm font-medium">
                     🎁 Đổi cho con
                   </button>
-                  <button onClick={() => removeReward(r.id)} className="bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-500 px-3 py-2 rounded-xl text-sm">
+                  <button onClick={() => openEdit(r.id)} className="bg-gray-100 hover:bg-violet-100 text-gray-500 hover:text-violet-600 px-3 py-2 rounded-xl text-sm" title="Sửa">
+                    ✏️
+                  </button>
+                  <button onClick={() => removeReward(r.id)} className="bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-500 px-3 py-2 rounded-xl text-sm" title="Xóa">
                     🗑
                   </button>
                 </div>

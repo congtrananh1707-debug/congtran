@@ -8,6 +8,7 @@ import type {
 } from '../types'
 import { nanoid, todayStr } from '../utils/helpers'
 import { queueDelete } from '../utils/deletionQueue'
+import { VOCAB_DATA } from '../data/vocab'
 
 // ─── Seed data ────────────────────────────────────────────────────────────────
 
@@ -107,38 +108,10 @@ const SEED_HEROES: SilentHero[] = [
   },
 ]
 
-const SEED_VOCAB: VocabWord[] = [
-  { id: 'v1',  word: 'apple',  translation: 'quả táo',   example: 'I eat an apple every day.',       theme: 'kitchen', masteredBy: [] },
-  { id: 'v2',  word: 'cup',    translation: 'cái cốc',   example: 'She drinks from a blue cup.',     theme: 'kitchen', masteredBy: ['child1'] },
-  { id: 'v3',  word: 'table',  translation: 'cái bàn',   example: 'We eat at the table.',            theme: 'kitchen', masteredBy: ['child1'] },
-  { id: 'v4',  word: 'chair',  translation: 'cái ghế',   example: 'Please sit on the chair.',        theme: 'kitchen', masteredBy: [] },
-  { id: 'v5',  word: 'spoon',  translation: 'cái thìa',  example: 'Use a spoon for soup.',           theme: 'kitchen', masteredBy: [] },
-  { id: 'v6',  word: 'fork',   translation: 'cái nĩa',   example: 'He eats dinner with a fork.',     theme: 'kitchen', masteredBy: [] },
-  { id: 'v7',  word: 'plate',  translation: 'cái đĩa',   example: 'Put food on the plate.',          theme: 'kitchen', masteredBy: [] },
-  { id: 'v8',  word: 'bowl',   translation: 'cái bát',   example: 'The soup is in the bowl.',        theme: 'kitchen', masteredBy: [] },
-  { id: 'v9',  word: 'knife',  translation: 'con dao',   example: 'Be careful with the knife.',      theme: 'kitchen', masteredBy: [] },
-  { id: 'v10', word: 'glass',  translation: 'cái ly',    example: 'Fill the glass with water.',      theme: 'kitchen', masteredBy: [] },
-  { id: 'v11', word: 'sun',    translation: 'mặt trời',  example: 'The sun is very bright.',         theme: 'nature',  masteredBy: ['child1'] },
-  { id: 'v12', word: 'moon',   translation: 'mặt trăng', example: 'I see the moon at night.',        theme: 'nature',  masteredBy: [] },
-  { id: 'v13', word: 'tree',   translation: 'cây xanh',  example: 'Birds sit in the tree.',          theme: 'nature',  masteredBy: [] },
-  { id: 'v14', word: 'flower', translation: 'bông hoa',  example: 'The flower is beautiful.',        theme: 'nature',  masteredBy: [] },
-  { id: 'v15', word: 'river',  translation: 'con sông',  example: 'Fish live in the river.',         theme: 'nature',  masteredBy: [] },
-  { id: 'v16', word: 'mountain', translation: 'ngọn núi', example: 'The mountain is very tall.',    theme: 'nature',  masteredBy: [] },
-  { id: 'v17', word: 'rain',   translation: 'mưa',       example: 'I love walking in the rain.',    theme: 'nature',  masteredBy: [] },
-  { id: 'v18', word: 'cloud',  translation: 'đám mây',   example: 'The cloud is white and soft.',   theme: 'nature',  masteredBy: [] },
-  { id: 'v19', word: 'wind',   translation: 'gió',       example: 'The wind blows the leaves.',     theme: 'nature',  masteredBy: [] },
-  { id: 'v20', word: 'star',   translation: 'ngôi sao',  example: 'Stars shine bright at night.',   theme: 'nature',  masteredBy: [] },
-  { id: 'v21', word: 'cat',    translation: 'con mèo',   example: 'The cat is sleeping.',            theme: 'animals', masteredBy: [] },
-  { id: 'v22', word: 'dog',    translation: 'con chó',   example: 'My dog is very friendly.',        theme: 'animals', masteredBy: [] },
-  { id: 'v23', word: 'bird',   translation: 'con chim',  example: 'The bird can fly high.',          theme: 'animals', masteredBy: [] },
-  { id: 'v24', word: 'fish',   translation: 'con cá',    example: 'Fish swim in the water.',         theme: 'animals', masteredBy: [] },
-  { id: 'v25', word: 'rabbit', translation: 'con thỏ',   example: 'The rabbit eats carrots.',        theme: 'animals', masteredBy: [] },
-  { id: 'v26', word: 'tiger',  translation: 'con hổ',    example: 'The tiger is a big cat.',         theme: 'animals', masteredBy: [] },
-  { id: 'v27', word: 'elephant', translation: 'con voi', example: 'Elephants have long trunks.',    theme: 'animals', masteredBy: [] },
-  { id: 'v28', word: 'monkey', translation: 'con khỉ',   example: 'Monkeys can climb trees.',        theme: 'animals', masteredBy: [] },
-  { id: 'v29', word: 'bear',   translation: 'con gấu',   example: 'Bears sleep in winter.',          theme: 'animals', masteredBy: [] },
-  { id: 'v30', word: 'duck',   translation: 'con vịt',   example: 'Ducks swim in the pond.',         theme: 'animals', masteredBy: [] },
-]
+// Curated ~1200-word English-Vietnamese dataset across 13 themes lives in
+// src/data/vocab.ts so this file stays scannable. Words live on Supabase
+// after the first sync, so this seed only matters for fresh devices.
+const SEED_VOCAB: VocabWord[] = VOCAB_DATA
 
 const SEED_ANCESTORS: Ancestor[] = [
   { id: 'anc1', name: 'Cụ Ông nội', gender: 'male',   relationship: 'Cụ nội', birthYear: 1920, deathYear: 1995, lunarDeathDay: 10, lunarDeathMonth: 3,  biography: 'Người sáng lập gia đình, sống trung thực và cần cù.', parentIds: [], photoUrl: undefined },
@@ -221,6 +194,7 @@ type Store = {
 
   // Quests
   addQuest: (data: Omit<Quest, 'id' | 'status'>) => void
+  updateQuest: (id: string, data: Partial<Quest>) => void
   completeQuest: (id: string, memberId: string) => void
   approveQuest: (id: string) => void
   rejectQuest: (id: string) => void
@@ -244,30 +218,37 @@ type Store = {
 
   // Wheel
   addWheelItem: (category: 'activity' | 'menu', label: string, emoji: string) => void
+  updateWheelItem: (id: string, data: Partial<WheelItem>) => void
   removeWheelItem: (id: string) => void
 
   // Quiz
   addQuizQuestion: (q: Omit<QuizQuestion, 'id'>) => void
+  updateQuizQuestion: (id: string, data: Partial<QuizQuestion>) => void
   removeQuizQuestion: (id: string) => void
 
   // Family Quests
   addFamilyQuest: (fq: Omit<FamilyQuest, 'id'>) => void
+  updateFamilyQuest: (id: string, data: Partial<FamilyQuest>) => void
   incrementFamilyQuest: (id: string) => void
   removeFamilyQuest: (id: string) => void
 
   // Albums & Photos
   addAlbum: (title: string, date: string, coverEmoji: string, description: string) => void
+  updateAlbum: (id: string, data: Partial<Album>) => void
   removeAlbum: (id: string) => void
   addPhoto: (albumId: string, dataUrl: string, caption: string, taggedMembers: string[], date: string) => void
+  updatePhoto: (id: string, data: Partial<Photo>) => void
   removePhoto: (id: string) => void
 
   // Silent Heroes
   addSilentHero: (memberId: string, loggedBy: string, deed: string) => void
+  updateSilentHero: (id: string, data: Partial<SilentHero>) => void
   reactSilentHero: (id: string, memberId: string, emoji: string) => void
   removeSilentHero: (id: string) => void
 
   // Vocab / English
   addVocabWord: (w: Omit<VocabWord, 'id' | 'masteredBy'>) => void
+  updateVocabWord: (id: string, data: Partial<VocabWord>) => void
   masterVocabWord: (id: string, memberId: string) => void
   unmasterVocabWord: (id: string, memberId: string) => void
   removeVocabWord: (id: string) => void
@@ -280,6 +261,7 @@ type Store = {
 
   // Calendar events
   addCalendarEvent: (ev: Omit<CalendarEvent, 'id'>) => void
+  updateCalendarEvent: (id: string, data: Partial<CalendarEvent>) => void
   removeCalendarEvent: (id: string) => void
 
   // Heritage - Ancestors
@@ -375,6 +357,7 @@ export const useStore = create<Store>()(
 
       // Quests
       addQuest: (data) => set((s) => ({ quests: [{ ...data, id: nanoid(), status: 'active' as QuestStatus }, ...s.quests] })),
+      updateQuest: (id, data) => set((s) => ({ quests: s.quests.map((q) => q.id === id ? { ...q, ...data } : q) })),
       completeQuest: (id, memberId) => set((s) => ({
         quests: s.quests.map((q) => q.id === id ? { ...q, status: 'pending', completedBy: memberId, completedAt: Date.now() } : q),
       })),
@@ -426,14 +409,17 @@ export const useStore = create<Store>()(
       // Wheel
       addWheelItem: (category, label, emoji) =>
         set((s) => ({ wheelItems: [...s.wheelItems, { id: nanoid(), category, label, emoji }] })),
+      updateWheelItem: (id, data) => set((s) => ({ wheelItems: s.wheelItems.map((w) => w.id === id ? { ...w, ...data } : w) })),
       removeWheelItem: (id) => { queueDelete('wheel_items', id); set((s) => ({ wheelItems: s.wheelItems.filter((w) => w.id !== id) })) },
 
       // Quiz
       addQuizQuestion: (q) => set((s) => ({ quizQuestions: [...s.quizQuestions, { ...q, id: nanoid() }] })),
+      updateQuizQuestion: (id, data) => set((s) => ({ quizQuestions: s.quizQuestions.map((q) => q.id === id ? { ...q, ...data } : q) })),
       removeQuizQuestion: (id) => { queueDelete('quiz_questions', id); set((s) => ({ quizQuestions: s.quizQuestions.filter((q) => q.id !== id) })) },
 
       // Family Quests
       addFamilyQuest: (fq) => set((s) => ({ familyQuests: [...s.familyQuests, { ...fq, id: nanoid() }] })),
+      updateFamilyQuest: (id, data) => set((s) => ({ familyQuests: s.familyQuests.map((fq) => fq.id === id ? { ...fq, ...data } : fq) })),
       incrementFamilyQuest: (id) => set((s) => ({
         familyQuests: s.familyQuests.map((fq) => fq.id === id ? { ...fq, currentDays: Math.min(fq.currentDays + 1, fq.targetDays) } : fq),
       })),
@@ -442,6 +428,7 @@ export const useStore = create<Store>()(
       // Albums & Photos
       addAlbum: (title, date, coverEmoji, description) =>
         set((s) => ({ albums: [{ id: nanoid(), title, date, coverEmoji, description }, ...s.albums] })),
+      updateAlbum: (id, data) => set((s) => ({ albums: s.albums.map((a) => a.id === id ? { ...a, ...data } : a) })),
       removeAlbum: (id) => {
         queueDelete('albums', id)
         // Cascade: queue deletion of all photos in this album
@@ -450,11 +437,13 @@ export const useStore = create<Store>()(
       },
       addPhoto: (albumId, dataUrl, caption, taggedMembers, date) =>
         set((s) => ({ photos: [...s.photos, { id: nanoid(), albumId, dataUrl, caption, taggedMembers, date }] })),
+      updatePhoto: (id, data) => set((s) => ({ photos: s.photos.map((p) => p.id === id ? { ...p, ...data } : p) })),
       removePhoto: (id) => { queueDelete('photos', id); set((s) => ({ photos: s.photos.filter((p) => p.id !== id) })) },
 
       // Silent Heroes
       addSilentHero: (memberId, loggedBy, deed) =>
         set((s) => ({ silentHeroes: [{ id: nanoid(), memberId, loggedBy, deed, timestamp: Date.now(), reactions: [] }, ...s.silentHeroes] })),
+      updateSilentHero: (id, data) => set((s) => ({ silentHeroes: s.silentHeroes.map((h) => h.id === id ? { ...h, ...data } : h) })),
       reactSilentHero: (id, memberId, emoji) => set((s) => ({
         silentHeroes: s.silentHeroes.map((h) =>
           h.id === id ? { ...h, reactions: [...h.reactions.filter((r) => r.memberId !== memberId), { memberId, emoji }] } : h
@@ -464,6 +453,7 @@ export const useStore = create<Store>()(
 
       // Vocab / English
       addVocabWord: (w) => set((s) => ({ vocabWords: [...s.vocabWords, { ...w, id: nanoid(), masteredBy: [] }] })),
+      updateVocabWord: (id, data) => set((s) => ({ vocabWords: s.vocabWords.map((v) => v.id === id ? { ...v, ...data } : v) })),
       masterVocabWord: (id, memberId) => set((s) => ({
         vocabWords: s.vocabWords.map((v) => v.id === id ? { ...v, masteredBy: [...new Set([...v.masteredBy, memberId])] } : v),
       })),
@@ -475,6 +465,7 @@ export const useStore = create<Store>()(
 
       // Calendar events
       addCalendarEvent: (ev) => set((s) => ({ calendarEvents: [...s.calendarEvents, { ...ev, id: nanoid() }] })),
+      updateCalendarEvent: (id, data) => set((s) => ({ calendarEvents: s.calendarEvents.map((e) => e.id === id ? { ...e, ...data } : e) })),
       removeCalendarEvent: (id) => { queueDelete('calendar_events', id); set((s) => ({ calendarEvents: s.calendarEvents.filter((e) => e.id !== id) })) },
 
       // Heritage - Ancestors

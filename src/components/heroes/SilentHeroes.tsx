@@ -18,17 +18,19 @@ function timeAgo(ts: number): string {
 }
 
 export default function SilentHeroes() {
-  const silentHeroes     = useStore((s) => s.silentHeroes)
-  const addSilentHero    = useStore((s) => s.addSilentHero)
-  const reactSilentHero  = useStore((s) => s.reactSilentHero)
-  const removeSilentHero = useStore((s) => s.removeSilentHero)
-  const members          = useStore((s) => s.members)
-  const currentMemberId  = useStore((s) => s.currentMemberId)
+  const silentHeroes      = useStore((s) => s.silentHeroes)
+  const addSilentHero     = useStore((s) => s.addSilentHero)
+  const updateSilentHero  = useStore((s) => s.updateSilentHero)
+  const reactSilentHero   = useStore((s) => s.reactSilentHero)
+  const removeSilentHero  = useStore((s) => s.removeSilentHero)
+  const members           = useStore((s) => s.members)
+  const currentMemberId   = useStore((s) => s.currentMemberId)
 
   const me = members.find((m) => m.id === currentMemberId)
   const isParent = me?.role === 'dad' || me?.role === 'mom'
 
   const [showAdd, setShowAdd] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ memberId: members[0]?.id ?? '', deed: '' })
 
   // Monthly leaderboard
@@ -40,11 +42,26 @@ export default function SilentHeroes() {
 
   const [addDone, setAddDone] = useState(false)
 
+  const openEdit = (id: string) => {
+    const h = silentHeroes.find((x) => x.id === id)
+    if (!h) return
+    setEditingId(id)
+    setForm({ memberId: h.memberId, deed: h.deed })
+    setShowAdd(true)
+  }
+
   const submitDeed = () => {
     if (!form.deed.trim() || !form.memberId || addDone) return
-    addSilentHero(form.memberId, currentMemberId || '', form.deed.trim())
+    if (editingId) {
+      updateSilentHero(editingId, { memberId: form.memberId, deed: form.deed.trim() })
+    } else {
+      addSilentHero(form.memberId, currentMemberId || '', form.deed.trim())
+    }
     setAddDone(true)
-    setTimeout(() => { setForm({ ...form, deed: '' }); setShowAdd(false); setAddDone(false) }, 600)
+    setTimeout(() => {
+      setForm({ memberId: members[0]?.id ?? '', deed: '' })
+      setShowAdd(false); setEditingId(null); setAddDone(false)
+    }, 600)
   }
 
   return (
@@ -93,7 +110,7 @@ export default function SilentHeroes() {
         {showAdd && isParent && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
             className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 mb-5">
-            <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-4">✨ Ghi nhận việc tốt</h3>
+            <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-4">{editingId ? '✏️ Sửa việc tốt' : '✨ Ghi nhận việc tốt'}</h3>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-400 block mb-1">Ai đã làm?</label>
@@ -119,9 +136,9 @@ export default function SilentHeroes() {
                 />
               </div>
               <div className="flex gap-2 justify-end">
-                <button onClick={() => setShowAdd(false)} disabled={addDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
+                <button onClick={() => { setShowAdd(false); setEditingId(null) }} disabled={addDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
                 <button onClick={submitDeed} disabled={!form.deed.trim() || addDone} className="bg-amber-500 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-amber-600 disabled:opacity-50 transition-all">
-                  {addDone ? '✅ Đã ghi nhận!' : 'Ghi nhận 🌟'}
+                  {addDone ? '✅ Đã lưu!' : editingId ? 'Lưu thay đổi' : 'Ghi nhận 🌟'}
                 </button>
               </div>
             </div>
@@ -156,7 +173,10 @@ export default function SilentHeroes() {
                       </p>
                     </div>
                     {isParent && (
-                      <button onClick={() => removeSilentHero(hero.id)} className="text-gray-300 hover:text-red-400 text-sm">🗑</button>
+                      <div className="flex gap-1">
+                        <button onClick={() => openEdit(hero.id)} className="text-gray-300 hover:text-violet-500 text-sm" title="Sửa">✏️</button>
+                        <button onClick={() => removeSilentHero(hero.id)} className="text-gray-300 hover:text-red-400 text-sm" title="Xóa">🗑</button>
+                      </div>
                     )}
                   </div>
 

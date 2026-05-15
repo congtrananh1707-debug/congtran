@@ -55,8 +55,9 @@ export default function FamilyCalendar() {
   const members        = useStore((s) => s.members)
   const quests         = useStore((s) => s.quests)
   const calendarEvents = useStore((s) => s.calendarEvents)
-  const addCalendarEvent   = useStore((s) => s.addCalendarEvent)
-  const removeCalendarEvent= useStore((s) => s.removeCalendarEvent)
+  const addCalendarEvent    = useStore((s) => s.addCalendarEvent)
+  const updateCalendarEvent = useStore((s) => s.updateCalendarEvent)
+  const removeCalendarEvent = useStore((s) => s.removeCalendarEvent)
   const currentMemberId    = useStore((s) => s.currentMemberId)
   const me = members.find((m) => m.id === currentMemberId)
   const isParent = me?.role === 'dad' || me?.role === 'mom'
@@ -66,6 +67,7 @@ export default function FamilyCalendar() {
   const [month, setMonth] = useState(today.getMonth())
   const [selectedDay, setSelectedDay] = useState<number | null>(today.getDate())
   const [showAdd, setShowAdd] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [addDone, setAddDone] = useState(false)
   const [form, setForm] = useState({ title: '', emoji: '🎉', date: '', color: 'bg-violet-500' })
 
@@ -94,13 +96,25 @@ export default function FamilyCalendar() {
     if (items.length > 0) monthEvents.push({ day: d, items })
   }
 
+  const openEdit = (id: string) => {
+    const ev = calendarEvents.find((e) => e.id === id)
+    if (!ev) return
+    setEditingId(id)
+    setForm({ title: ev.title, emoji: ev.emoji, date: ev.date, color: ev.color })
+    setShowAdd(true)
+  }
+
   const addEvent = () => {
     if (!form.title.trim() || !form.date || addDone) return
-    addCalendarEvent({ title: form.title, emoji: form.emoji, date: form.date, color: form.color, createdBy: currentMemberId || '' })
+    if (editingId) {
+      updateCalendarEvent(editingId, { title: form.title, emoji: form.emoji, date: form.date, color: form.color })
+    } else {
+      addCalendarEvent({ title: form.title, emoji: form.emoji, date: form.date, color: form.color, createdBy: currentMemberId || '' })
+    }
     setAddDone(true)
     setTimeout(() => {
       setForm({ title: '', emoji: '🎉', date: '', color: 'bg-violet-500' })
-      setShowAdd(false); setAddDone(false)
+      setShowAdd(false); setEditingId(null); setAddDone(false)
     }, 600)
   }
 
@@ -126,7 +140,7 @@ export default function FamilyCalendar() {
         {showAdd && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
             className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 mb-5">
-            <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-4">✨ Thêm sự kiện</h3>
+            <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-4">{editingId ? '✏️ Sửa sự kiện' : '✨ Thêm sự kiện'}</h3>
             <div className="space-y-3">
               <div className="flex gap-2">
                 <div>
@@ -157,9 +171,9 @@ export default function FamilyCalendar() {
                 </div>
               </div>
               <div className="flex gap-2 justify-end">
-                <button onClick={() => setShowAdd(false)} disabled={addDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
+                <button onClick={() => { setShowAdd(false); setEditingId(null) }} disabled={addDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
                 <button onClick={addEvent} disabled={!form.title.trim() || !form.date || addDone} className="bg-violet-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-violet-700 disabled:opacity-50 transition-all">
-                  {addDone ? '✅ Đã lưu!' : 'Lưu'}
+                  {addDone ? '✅ Đã lưu!' : editingId ? 'Lưu thay đổi' : 'Lưu'}
                 </button>
               </div>
             </div>
@@ -223,12 +237,25 @@ export default function FamilyCalendar() {
               <p className="text-gray-400 text-sm text-center py-4">Không có sự kiện nào ngày này</p>
             ) : (
               <div className="space-y-2">
-                {selectedEvents.map((ev, i) => (
-                  <div key={i} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-700 rounded-xl p-3">
-                    <span className="text-xl">{ev.emoji}</span>
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{ev.label}</span>
-                  </div>
-                ))}
+                {selectedEvents.map((ev, i) => {
+                  // Match this event back to a user-added calendarEvent (birthdays/quests are derived, not editable)
+                  const mm = String(month + 1).padStart(2, '0')
+                  const dd = String(selectedDay).padStart(2, '0')
+                  const dateStr = `${year}-${mm}-${dd}`
+                  const userEvent = calendarEvents.find((c) => c.date === dateStr && ev.label === `${c.emoji} ${c.title}`)
+                  return (
+                    <div key={i} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-700 rounded-xl p-3">
+                      <span className="text-xl">{ev.emoji}</span>
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-200 flex-1">{ev.label}</span>
+                      {isParent && userEvent && (
+                        <>
+                          <button onClick={() => openEdit(userEvent.id)} className="text-gray-400 hover:text-violet-500 text-sm" title="Sửa">✏️</button>
+                          <button onClick={() => removeCalendarEvent(userEvent.id)} className="text-gray-400 hover:text-red-500 text-sm" title="Xóa">🗑</button>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </motion.div>

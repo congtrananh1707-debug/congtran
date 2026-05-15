@@ -427,6 +427,7 @@ const EMPTY_FORM: AncestorForm = {
   name: '', gender: 'male', relationship: '', birthYear: undefined, deathYear: undefined,
   solarBirthDate: '', solarDeathDate: '', lunarDeathDay: undefined, lunarDeathMonth: undefined,
   biography: '', photoUrl: '', parentIds: [], spouseId: undefined,
+  phone: '', address: '', hometown: '', occupation: '',
 }
 
 function AncestorFormFields({
@@ -481,7 +482,12 @@ function AncestorFormFields({
       <div>
         <label className="text-xs text-amber-700 font-medium block mb-1">Năm mất</label>
         <input type="number" value={form.deathYear ?? ''} onChange={(e) => setForm((f) => ({ ...f, deathYear: e.target.value ? parseInt(e.target.value) : undefined }))}
-          placeholder="2005" className={inputCls} />
+          placeholder="2005 (để trống nếu còn sống)" className={inputCls} />
+      </div>
+      <div className="col-span-2">
+        <label className="text-xs text-amber-700 font-medium block mb-1">Ngày sinh đầy đủ (dương lịch)</label>
+        <input type="date" value={form.solarBirthDate ?? ''} onChange={(e) => setForm((f) => ({ ...f, solarBirthDate: e.target.value }))}
+          className={inputCls} />
       </div>
       <div>
         <label className="text-xs text-amber-700 font-medium block mb-1">Ngày giỗ âm — Ngày</label>
@@ -497,6 +503,31 @@ function AncestorFormFields({
         <label className="text-xs text-amber-700 font-medium block mb-1">Ngày mất dương lịch (để tính đếm ngược)</label>
         <input type="date" value={form.solarDeathDate ?? ''} onChange={(e) => setForm((f) => ({ ...f, solarDeathDate: e.target.value }))}
           className={inputCls} />
+      </div>
+
+      {/* Extended profile */}
+      <div className="col-span-2 pt-2 mt-1 border-t border-amber-200">
+        <p className="text-xs text-amber-500 uppercase tracking-wider font-medium mb-2">Thông tin liên hệ</p>
+      </div>
+      <div>
+        <label className="text-xs text-amber-700 font-medium block mb-1">📞 Số điện thoại</label>
+        <input value={form.phone ?? ''} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+          placeholder="0912 345 678" className={inputCls} />
+      </div>
+      <div>
+        <label className="text-xs text-amber-700 font-medium block mb-1">💼 Nghề nghiệp</label>
+        <input value={form.occupation ?? ''} onChange={(e) => setForm((f) => ({ ...f, occupation: e.target.value }))}
+          placeholder="Giáo viên, kỹ sư..." className={inputCls} />
+      </div>
+      <div className="col-span-2">
+        <label className="text-xs text-amber-700 font-medium block mb-1">🏡 Quê quán</label>
+        <input value={form.hometown ?? ''} onChange={(e) => setForm((f) => ({ ...f, hometown: e.target.value }))}
+          placeholder="Hà Nam, Nam Định..." className={inputCls} />
+      </div>
+      <div className="col-span-2">
+        <label className="text-xs text-amber-700 font-medium block mb-1">📍 Địa chỉ hiện tại</label>
+        <input value={form.address ?? ''} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+          placeholder="Số nhà, đường, phường, quận..." className={inputCls} />
       </div>
 
       {/* Parents */}
@@ -637,6 +668,10 @@ function EditAncestorModal({ ancestor, ancestors, onClose }: { ancestor: Ancesto
     photoUrl: ancestor.photoUrl ?? '',
     parentIds: ancestor.parentIds ?? [],
     spouseId: ancestor.spouseId,
+    phone: ancestor.phone ?? '',
+    address: ancestor.address ?? '',
+    hometown: ancestor.hometown ?? '',
+    occupation: ancestor.occupation ?? '',
   })
   const [done, setDone] = useState(false)
 
@@ -674,17 +709,19 @@ function EditAncestorModal({ ancestor, ancestors, onClose }: { ancestor: Ancesto
 // ─── Ancestral Calendar (Anniversary list) ─────────────────────────────────────
 
 function AncestralCalendar() {
-  const ancestors         = useStore((s) => s.ancestors)
-  const anniversaries     = useStore((s) => s.anniversaries)
-  const addAnniversary    = useStore((s) => s.addAnniversary)
-  const removeAnniversary = useStore((s) => s.removeAnniversary)
-  const currentMemberId   = useStore((s) => s.currentMemberId)
-  const members           = useStore((s) => s.members)
+  const ancestors          = useStore((s) => s.ancestors)
+  const anniversaries      = useStore((s) => s.anniversaries)
+  const addAnniversary     = useStore((s) => s.addAnniversary)
+  const updateAnniversary  = useStore((s) => s.updateAnniversary)
+  const removeAnniversary  = useStore((s) => s.removeAnniversary)
+  const currentMemberId    = useStore((s) => s.currentMemberId)
+  const members            = useStore((s) => s.members)
 
   const currentMember = members.find((m) => m.id === currentMemberId)
   const isParent = currentMember ? isParentRole(currentMember.role) : false
 
   const [showAdd, setShowAdd] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<Omit<Anniversary, 'id'>>({
     name: '', ancestorId: undefined, solarDate: '', lunarDay: 1, lunarMonth: 1, notes: '',
   })
@@ -707,11 +744,31 @@ function AncestralCalendar() {
     }).sort((a, b) => (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999))
   }, [anniversaries, ancestors])
 
+  const openEdit = (id: string) => {
+    const ann = anniversaries.find((a) => a.id === id)
+    if (!ann) return
+    setEditingId(id)
+    setForm({
+      name: ann.name,
+      ancestorId: ann.ancestorId,
+      solarDate: ann.solarDate ?? '',
+      lunarDay: ann.lunarDay,
+      lunarMonth: ann.lunarMonth,
+      notes: ann.notes ?? '',
+    })
+    setShowAdd(true)
+  }
+
   const submit = () => {
     if (!form.name.trim() || !form.lunarDay || !form.lunarMonth) return
-    addAnniversary({ ...form, name: form.name.trim() })
+    if (editingId) {
+      updateAnniversary(editingId, { ...form, name: form.name.trim() })
+    } else {
+      addAnniversary({ ...form, name: form.name.trim() })
+    }
     setForm({ name: '', ancestorId: undefined, solarDate: '', lunarDay: 1, lunarMonth: 1, notes: '' })
     setShowAdd(false)
+    setEditingId(null)
   }
 
   return (
@@ -764,8 +821,10 @@ function AncestralCalendar() {
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={submit} className="bg-amber-800 text-amber-50 px-4 py-2 rounded-xl font-medium text-sm hover:bg-amber-900">Lưu</button>
-              <button onClick={() => setShowAdd(false)} className="text-amber-700 px-4 py-2 rounded-xl text-sm hover:bg-amber-200">Hủy</button>
+              <button onClick={submit} className="bg-amber-800 text-amber-50 px-4 py-2 rounded-xl font-medium text-sm hover:bg-amber-900">
+                {editingId ? 'Lưu thay đổi' : 'Lưu'}
+              </button>
+              <button onClick={() => { setShowAdd(false); setEditingId(null) }} className="text-amber-700 px-4 py-2 rounded-xl text-sm hover:bg-amber-200">Hủy</button>
             </div>
           </motion.div>
         )}
@@ -809,8 +868,10 @@ function AncestralCalendar() {
                 {ann.notes && <p className="text-xs text-amber-500 mt-1 italic">📝 {ann.notes}</p>}
               </div>
               {isParent && (
-                <button onClick={() => removeAnniversary(ann.id)}
-                  className="text-amber-300 hover:text-red-400 text-sm flex-shrink-0 mt-1">✕</button>
+                <div className="flex flex-col gap-1 flex-shrink-0 mt-1">
+                  <button onClick={() => openEdit(ann.id)} className="text-amber-400 hover:text-amber-700 text-sm" title="Sửa">✏️</button>
+                  <button onClick={() => removeAnniversary(ann.id)} className="text-amber-300 hover:text-red-400 text-sm" title="Xóa">✕</button>
+                </div>
               )}
             </motion.div>
           ))}
@@ -886,10 +947,27 @@ function AncestorPopup({
           </div>
         )}
 
+        {/* Contact / profile fields */}
+        {(ancestor.phone || ancestor.occupation || ancestor.hometown || ancestor.address || ancestor.solarBirthDate) && (
+          <div className="bg-amber-100 rounded-xl p-3 mb-3 space-y-1">
+            {ancestor.solarBirthDate && (
+              <p className="text-sm text-amber-800">🎂 Sinh ngày: <strong>{new Date(ancestor.solarBirthDate).toLocaleDateString('vi-VN')}</strong></p>
+            )}
+            {ancestor.phone && (
+              <p className="text-sm text-amber-800">
+                📞 SĐT: <a href={`tel:${ancestor.phone}`} className="font-semibold underline">{ancestor.phone}</a>
+              </p>
+            )}
+            {ancestor.occupation && <p className="text-sm text-amber-800">💼 Nghề: <strong>{ancestor.occupation}</strong></p>}
+            {ancestor.hometown && <p className="text-sm text-amber-800">🏡 Quê: <strong>{ancestor.hometown}</strong></p>}
+            {ancestor.address && <p className="text-sm text-amber-800">📍 Địa chỉ: <strong>{ancestor.address}</strong></p>}
+          </div>
+        )}
+
         {ancestor.biography && (
           <div className="mb-4">
             <p className="text-xs text-amber-600 font-medium uppercase tracking-wide mb-1">Tiểu sử</p>
-            <p className="text-sm text-amber-800 leading-relaxed">{ancestor.biography}</p>
+            <p className="text-sm text-amber-800 leading-relaxed whitespace-pre-wrap">{ancestor.biography}</p>
           </div>
         )}
 
