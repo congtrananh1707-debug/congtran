@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useStore } from './store/useStore'
+import { useSupabaseSync } from './hooks/useSupabaseSync'
 import PinLogin from './components/auth/PinLogin'
 import MemberSelect from './components/auth/MemberSelect'
 import AppLayout from './components/layout/AppLayout'
@@ -17,6 +18,7 @@ import Settings from './components/settings/Settings'
 import EnglishAdventure from './components/english/EnglishAdventure'
 import FamilyCalendar from './components/calendar/FamilyCalendar'
 import SilentHeroes from './components/heroes/SilentHeroes'
+import HeritageView from './components/heritage/HeritageView'
 import ErrorBoundary from './components/ui/ErrorBoundary'
 import type { AppView } from './types'
 
@@ -24,8 +26,11 @@ export default function App() {
   const isAuthenticated = useStore((s) => s.isAuthenticated)
   const currentMemberId = useStore((s) => s.currentMemberId)
 
-  const [view, setView] = useState<AppView>('dashboard')
+  const [view, setView]         = useState<AppView>('dashboard')
   const [profileId, setProfileId] = useState<string>('')
+
+  // Supabase realtime sync (no-op if not configured)
+  useSupabaseSync()
 
   if (!isAuthenticated) return <PinLogin />
   if (!currentMemberId) return <MemberSelect />
@@ -47,6 +52,7 @@ export default function App() {
       case 'english':   return <EnglishAdventure />
       case 'calendar':  return <FamilyCalendar />
       case 'heroes':    return <SilentHeroes />
+      case 'heritage':  return <HeritageView />
       case 'settings':  return <Settings />
       default:          return <Dashboard setView={navigate} setProfileId={setProfileId} />
     }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../../store/useStore'
 import { formatDateTime } from '../../utils/helpers'
+import { isParentRole } from '../../types'
 import type { QuestType } from '../../types'
 import Confetti from '../ui/Confetti'
 
@@ -47,13 +48,14 @@ export default function QuestLog() {
   const removeQuest    = useStore((s) => s.removeQuest)
 
   const me = members.find((m) => m.id === currentMemberId)
-  const isParent = me?.role === 'dad' || me?.role === 'mom'
+  const isParent = me ? isParentRole(me.role) : false
 
   const [filter, setFilter] = useState<'all' | QuestType | 'mine'>('mine')
   const [showAdd, setShowAdd] = useState(false)
   const [showConfetti, setShowConfetti] = useState(false)
   const [isFlash, setIsFlash] = useState(false)
   const [flashMinutes, setFlashMinutes] = useState(30)
+  const [addDone, setAddDone] = useState(false)
   const [form, setForm] = useState({
     title: '', description: '', type: 'daily' as QuestType,
     tokens: 10, assignedTo: [currentMemberId || ''],
@@ -72,15 +74,17 @@ export default function QuestLog() {
   const children = members.filter((m) => m.role === 'child')
 
   const submit = () => {
-    if (!form.title.trim()) return
+    if (!form.title.trim() || addDone) return
     addQuest({
       ...form,
       createdBy: currentMemberId || '',
       flashDeadline: isFlash ? Date.now() + flashMinutes * 60 * 1000 : undefined,
     })
-    setShowAdd(false)
-    setIsFlash(false)
-    setForm({ title: '', description: '', type: 'daily', tokens: 10, assignedTo: [currentMemberId || ''] })
+    setAddDone(true)
+    setTimeout(() => {
+      setShowAdd(false); setIsFlash(false); setAddDone(false)
+      setForm({ title: '', description: '', type: 'daily', tokens: 10, assignedTo: [currentMemberId || ''] })
+    }, 600)
   }
 
   const handleApprove = (id: string) => {
@@ -223,8 +227,10 @@ export default function QuestLog() {
               </div>
 
               <div className="flex gap-2 justify-end">
-                <button onClick={() => { setShowAdd(false); setIsFlash(false) }} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100">Hủy</button>
-                <button onClick={submit} className="bg-violet-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-violet-700">Tạo nhiệm vụ</button>
+                <button onClick={() => { setShowAdd(false); setIsFlash(false) }} disabled={addDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
+                <button onClick={submit} disabled={!form.title.trim() || addDone} className="bg-violet-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-violet-700 disabled:opacity-50 transition-all">
+                  {addDone ? '✅ Đã tạo!' : 'Tạo nhiệm vụ'}
+                </button>
               </div>
             </div>
           </motion.div>

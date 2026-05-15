@@ -18,7 +18,6 @@ export function formatDateTime(ts: number): string {
 
 export function isSameDay(ts: number, dateStr: string): boolean {
   const d = new Date(ts)
-  const now = new Date()
   const target = new Date(dateStr)
   return d.getDate() === target.getDate() && d.getMonth() === target.getMonth()
 }
@@ -36,7 +35,12 @@ export function isOnThisDay(dateStr: string): boolean {
 export function yearsAgo(dateStr: string): number {
   const d = new Date(dateStr)
   const now = new Date()
-  return now.getFullYear() - d.getFullYear()
+  let age = now.getFullYear() - d.getFullYear()
+  const notYetThisYear =
+    now.getMonth() < d.getMonth() ||
+    (now.getMonth() === d.getMonth() && now.getDate() < d.getDate())
+  if (notYetThisYear) age--
+  return age
 }
 
 export function calcAge(birthday: string): number {

@@ -21,6 +21,7 @@ export default function MagicWheel() {
   const [result, setResult] = useState<WheelItem | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ label: '', emoji: '🎯' })
+  const [addDone, setAddDone] = useState(false)
   const spinRef = useRef(0)
 
   const items = wheelItems.filter((w) => w.category === category)
@@ -46,10 +47,13 @@ export default function MagicWheel() {
   }
 
   const submit = () => {
-    if (!form.label.trim()) return
+    if (!form.label.trim() || addDone) return
     addWheelItem(category, form.label.trim(), form.emoji)
-    setForm({ label: '', emoji: '🎯' })
-    setShowAdd(false)
+    setAddDone(true)
+    setTimeout(() => {
+      setForm({ label: '', emoji: '🎯' })
+      setShowAdd(false); setAddDone(false)
+    }, 600)
   }
 
   const segSize = items.length > 0 ? 360 / items.length : 360
@@ -175,7 +179,7 @@ export default function MagicWheel() {
               className="w-12 border border-gray-200 rounded-xl p-2 text-center text-lg" maxLength={2} />
             <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })}
               placeholder="Tên mục..." className="flex-1 border border-gray-200 rounded-xl p-2 text-sm" />
-            <button onClick={submit} className="bg-violet-600 text-white px-3 py-2 rounded-xl text-sm">+</button>
+            <button onClick={submit} disabled={!form.label.trim() || addDone} className="bg-violet-600 text-white px-3 py-2 rounded-xl text-sm disabled:opacity-50 transition-all min-w-[40px]">{addDone ? '✅' : '+'}</button>
           </div>
         )}
 

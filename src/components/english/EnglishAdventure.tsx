@@ -147,6 +147,7 @@ export default function EnglishAdventure() {
   const [tab, setTab] = useState<'vocab' | 'quiz' | 'manage'>('vocab')
   const [showAddWord, setShowAddWord] = useState(false)
   const [wordForm, setWordForm] = useState({ word: '', translation: '', example: '' })
+  const [wordDone, setWordDone] = useState(false)
 
   const themeWords = vocabWords.filter((v) => v.theme === englishTheme)
   const masteredCount = themeWords.filter((v) => v.masteredBy.includes(currentMemberId || '')).length
@@ -163,10 +164,13 @@ export default function EnglishAdventure() {
   }, [themeWords, dayOfYear])
 
   const addWord = () => {
-    if (!wordForm.word.trim() || !wordForm.translation.trim()) return
+    if (!wordForm.word.trim() || !wordForm.translation.trim() || wordDone) return
     addVocabWord({ ...wordForm, theme: englishTheme })
-    setWordForm({ word: '', translation: '', example: '' })
-    setShowAddWord(false)
+    setWordDone(true)
+    setTimeout(() => {
+      setWordForm({ word: '', translation: '', example: '' })
+      setShowAddWord(false); setWordDone(false)
+    }, 600)
   }
 
   const themeInfo = ENGLISH_THEME_LABELS[englishTheme] ?? { label: englishTheme, emoji: '📖' }
@@ -311,8 +315,8 @@ export default function EnglishAdventure() {
                   <input value={wordForm.example} onChange={(e) => setWordForm({ ...wordForm, example: e.target.value })}
                     placeholder="Câu ví dụ (tuỳ chọn)" className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 text-sm" />
                   <div className="flex gap-2 justify-end">
-                    <button onClick={() => setShowAddWord(false)} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100">Hủy</button>
-                    <button onClick={addWord} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-700">Thêm</button>
+                    <button onClick={() => setShowAddWord(false)} disabled={wordDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
+                    <button onClick={addWord} disabled={!wordForm.word.trim() || !wordForm.translation.trim() || wordDone} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-all">{wordDone ? '✅ Đã thêm!' : 'Thêm'}</button>
                   </div>
                 </div>
               </motion.div>

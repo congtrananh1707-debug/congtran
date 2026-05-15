@@ -4,8 +4,10 @@ import type {
   Member, HealthRecord, SkillNode, Quest, Reward, MailMessage,
   GratitudeNote, WheelItem, QuizQuestion, FamilyQuest, Album, Photo,
   MoodTag, MailReaction, QuestStatus, SilentHero, VocabWord, CalendarEvent,
+  Ancestor, Anniversary,
 } from '../types'
 import { nanoid, todayStr } from '../utils/helpers'
+import { queueDelete } from '../utils/deletionQueue'
 
 // ─── Seed data ────────────────────────────────────────────────────────────────
 
@@ -19,7 +21,7 @@ const SEED_QUESTS: Quest[] = [
   { id: 'q1', title: 'Ăn hết cơm',               description: 'Ăn hết phần cơm của mình mà không bỏ thừa',          type: 'daily',   tokens: 5,  assignedTo: ['child1'],                status: 'active',   createdBy: 'mom' },
   { id: 'q2', title: 'Tự đánh răng buổi tối',    description: 'Nhớ đánh răng trước khi đi ngủ',                    type: 'daily',   tokens: 3,  assignedTo: ['child1'],                status: 'active',   createdBy: 'dad' },
   { id: 'q3', title: 'Học bài 30 phút',           description: 'Ngồi học bài nghiêm túc 30 phút mỗi ngày',         type: 'daily',   tokens: 10, assignedTo: ['child1'],                status: 'pending',  createdBy: 'mom', completedBy: 'child1', completedAt: Date.now() - 3600000 },
-  { id: 'q4', title: 'Dọn phòng sạch sẽ',         description: 'Dọn phòng ngủ gọn gàng, sạch sẽ',                  type: 'special', tokens: 20, assignedTo: ['child1'],                status: 'approved', createdBy: 'dad', completedBy: 'child1', completedAt: Date.now() - 86400000 },
+  { id: 'q4', title: 'Dọn phòng sạch sẽ',        description: 'Dọn phòng ngủ gọn gàng, sạch sẽ',                  type: 'special', tokens: 20, assignedTo: ['child1'],                status: 'approved', createdBy: 'dad', completedBy: 'child1', completedAt: Date.now() - 86400000 },
   { id: 'q5', title: '7 ngày không dùng màn hình khi ăn', description: 'Cả nhà không dùng điện thoại/TV trong bữa ăn 7 ngày', type: 'family', tokens: 50, assignedTo: ['dad','mom','child1'], status: 'active', createdBy: 'dad' },
 ]
 
@@ -32,16 +34,16 @@ const SEED_REWARDS: Reward[] = [
 ]
 
 const SEED_SKILLS: SkillNode[] = [
-  { id: 'sk1',  memberId: 'child1', category: 'academics',  name: 'Đọc trôi chảy',          icon: '📖', achieved: true,  achievedDate: '2024-03-01' },
-  { id: 'sk2',  memberId: 'child1', category: 'academics',  name: 'Làm toán nhẩm',           icon: '🔢', achieved: true,  achievedDate: '2024-05-15' },
-  { id: 'sk3',  memberId: 'child1', category: 'academics',  name: 'Viết chính tả đúng',      icon: '✍️', achieved: false },
-  { id: 'sk4',  memberId: 'child1', category: 'sports',     name: 'Biết đi xe đạp',          icon: '🚲', achieved: true,  achievedDate: '2024-06-20' },
-  { id: 'sk5',  memberId: 'child1', category: 'sports',     name: 'Biết bơi',                 icon: '🏊', achieved: false },
+  { id: 'sk1',  memberId: 'child1', category: 'academics',  name: 'Đọc trôi chảy',         icon: '📖', achieved: true,  achievedDate: '2024-03-01' },
+  { id: 'sk2',  memberId: 'child1', category: 'academics',  name: 'Làm toán nhẩm',          icon: '🔢', achieved: true,  achievedDate: '2024-05-15' },
+  { id: 'sk3',  memberId: 'child1', category: 'academics',  name: 'Viết chính tả đúng',     icon: '✍️', achieved: false },
+  { id: 'sk4',  memberId: 'child1', category: 'sports',     name: 'Biết đi xe đạp',         icon: '🚲', achieved: true,  achievedDate: '2024-06-20' },
+  { id: 'sk5',  memberId: 'child1', category: 'sports',     name: 'Biết bơi',                icon: '🏊', achieved: false },
   { id: 'sk6',  memberId: 'child1', category: 'softSkills', name: 'Nói xin chào người lớn', icon: '👋', achieved: true,  achievedDate: '2023-09-01' },
   { id: 'sk7',  memberId: 'child1', category: 'softSkills', name: 'Tự dọn đồ chơi',         icon: '🧹', achieved: true,  achievedDate: '2024-01-10' },
-  { id: 'sk8',  memberId: 'child1', category: 'arts',       name: 'Vẽ tranh đơn giản',       icon: '🎨', achieved: true,  achievedDate: '2024-02-14' },
-  { id: 'sk9',  memberId: 'child1', category: 'arts',       name: 'Hát một bài hát',          icon: '🎵', achieved: false },
-  { id: 'sk10', memberId: 'child1', category: 'social',     name: 'Chơi hòa thuận với bạn',  icon: '🤝', achieved: true,  achievedDate: '2024-04-05' },
+  { id: 'sk8',  memberId: 'child1', category: 'arts',       name: 'Vẽ tranh đơn giản',      icon: '🎨', achieved: true,  achievedDate: '2024-02-14' },
+  { id: 'sk9',  memberId: 'child1', category: 'arts',       name: 'Hát một bài hát',         icon: '🎵', achieved: false },
+  { id: 'sk10', memberId: 'child1', category: 'social',     name: 'Chơi hòa thuận với bạn', icon: '🤝', achieved: true,  achievedDate: '2024-04-05' },
 ]
 
 const SEED_HEALTH: HealthRecord[] = [
@@ -63,15 +65,15 @@ const SEED_MAILS: MailMessage[] = [
 ]
 
 const SEED_GRATITUDE: GratitudeNote[] = [
-  { id: 'g1', from: 'child1', to: 'mom', message: 'Cảm ơn mẹ đã nấu cơm ngon cho con!',               color: 'bg-pink-200 border-pink-300',   timestamp: Date.now() - 86400000  },
+  { id: 'g1', from: 'child1', to: 'mom',    message: 'Cảm ơn mẹ đã nấu cơm ngon cho con!',             color: 'bg-pink-200 border-pink-300',    timestamp: Date.now() - 86400000  },
   { id: 'g2', from: 'mom',    to: 'child1', message: 'Mẹ biết ơn con vì con luôn cố gắng học tập!',    color: 'bg-yellow-200 border-yellow-300', timestamp: Date.now() - 172800000 },
-  { id: 'g3', from: 'dad',    to: 'mom', message: 'Cảm ơn mẹ đã chăm sóc cả nhà mỗi ngày 💕',         color: 'bg-purple-200 border-purple-300', timestamp: Date.now() - 259200000 },
+  { id: 'g3', from: 'dad',    to: 'mom',    message: 'Cảm ơn mẹ đã chăm sóc cả nhà mỗi ngày 💕',      color: 'bg-purple-200 border-purple-300', timestamp: Date.now() - 259200000 },
 ]
 
 const SEED_WHEEL: WheelItem[] = [
   { id: 'w1',  category: 'activity', label: 'Đi công viên',       emoji: '🌳' },
-  { id: 'w2',  category: 'activity', label: 'Xem phim ở nhà',    emoji: '🎬' },
-  { id: 'w3',  category: 'activity', label: 'Chơi board game',   emoji: '🎲' },
+  { id: 'w2',  category: 'activity', label: 'Xem phim ở nhà',     emoji: '🎬' },
+  { id: 'w3',  category: 'activity', label: 'Chơi board game',     emoji: '🎲' },
   { id: 'w4',  category: 'activity', label: 'Đi bơi',             emoji: '🏊' },
   { id: 'w5',  category: 'activity', label: 'Làm bánh cùng nhau', emoji: '🍰' },
   { id: 'w6',  category: 'menu',     label: 'Phở bò',             emoji: '🍜' },
@@ -82,9 +84,9 @@ const SEED_WHEEL: WheelItem[] = [
 ]
 
 const SEED_QUIZ: QuizQuestion[] = [
-  { id: 'qz1', question: 'Ngày sinh nhật của Bố là ngày nào?',   answers: ['15/3', '22/7', '1/12', '5/9'], correctIndex: 0, createdBy: 'mom' },
-  { id: 'qz2', question: 'Mẹ thích ăn món gì nhất?',             answers: ['Phở', 'Bún bò', 'Cơm tấm', 'Bánh mì'], correctIndex: 1, createdBy: 'dad' },
-  { id: 'qz3', question: 'Con học lớp mấy?',                     answers: ['Lớp 1', 'Lớp 2', 'Lớp 3', 'Lớp 4'], correctIndex: 0, createdBy: 'dad' },
+  { id: 'qz1', question: 'Ngày sinh nhật của Bố là ngày nào?',    answers: ['15/3', '22/7', '1/12', '5/9'],          correctIndex: 0, createdBy: 'mom' },
+  { id: 'qz2', question: 'Mẹ thích ăn món gì nhất?',              answers: ['Phở', 'Bún bò', 'Cơm tấm', 'Bánh mì'], correctIndex: 1, createdBy: 'dad' },
+  { id: 'qz3', question: 'Con học lớp mấy?',                      answers: ['Lớp 1', 'Lớp 2', 'Lớp 3', 'Lớp 4'],   correctIndex: 0, createdBy: 'dad' },
 ]
 
 const SEED_FAMILY_QUESTS: FamilyQuest[] = [
@@ -92,8 +94,8 @@ const SEED_FAMILY_QUESTS: FamilyQuest[] = [
 ]
 
 const SEED_ALBUMS: Album[] = [
-  { id: 'al1', title: 'Sinh nhật Con 2024',  date: '2024-12-01', coverEmoji: '🎂', description: 'Bữa tiệc sinh nhật vui vẻ của cả nhà'     },
-  { id: 'al2', title: 'Đi biển hè 2024',    date: '2024-07-15', coverEmoji: '🏖️', description: 'Kỳ nghỉ hè đáng nhớ tại Đà Nẵng'          },
+  { id: 'al1', title: 'Sinh nhật Con 2024', date: '2024-12-01', coverEmoji: '🎂', description: 'Bữa tiệc sinh nhật vui vẻ của cả nhà'   },
+  { id: 'al2', title: 'Đi biển hè 2024',   date: '2024-07-15', coverEmoji: '🏖️', description: 'Kỳ nghỉ hè đáng nhớ tại Đà Nẵng'        },
 ]
 
 const SEED_HEROES: SilentHero[] = [
@@ -106,39 +108,48 @@ const SEED_HEROES: SilentHero[] = [
 ]
 
 const SEED_VOCAB: VocabWord[] = [
-  // Kitchen
-  { id: 'v1',  word: 'apple',  translation: 'quả táo',  example: 'I eat an apple every day.',      theme: 'kitchen', masteredBy: [] },
-  { id: 'v2',  word: 'cup',    translation: 'cái cốc',  example: 'She drinks from a blue cup.',    theme: 'kitchen', masteredBy: ['child1'] },
-  { id: 'v3',  word: 'table',  translation: 'cái bàn',  example: 'We eat at the table.',            theme: 'kitchen', masteredBy: ['child1'] },
-  { id: 'v4',  word: 'chair',  translation: 'cái ghế',  example: 'Please sit on the chair.',       theme: 'kitchen', masteredBy: [] },
-  { id: 'v5',  word: 'spoon',  translation: 'cái thìa', example: 'Use a spoon for soup.',          theme: 'kitchen', masteredBy: [] },
-  { id: 'v6',  word: 'fork',   translation: 'cái nĩa',  example: 'He eats dinner with a fork.',   theme: 'kitchen', masteredBy: [] },
-  { id: 'v7',  word: 'plate',  translation: 'cái đĩa',  example: 'Put food on the plate.',        theme: 'kitchen', masteredBy: [] },
-  { id: 'v8',  word: 'bowl',   translation: 'cái bát',  example: 'The soup is in the bowl.',      theme: 'kitchen', masteredBy: [] },
-  { id: 'v9',  word: 'knife',  translation: 'con dao',  example: 'Be careful with the knife.',    theme: 'kitchen', masteredBy: [] },
-  { id: 'v10', word: 'glass',  translation: 'cái ly',   example: 'Fill the glass with water.',    theme: 'kitchen', masteredBy: [] },
-  // Nature
-  { id: 'v11', word: 'sun',      translation: 'mặt trời',  example: 'The sun is very bright.',       theme: 'nature', masteredBy: ['child1'] },
-  { id: 'v12', word: 'moon',     translation: 'mặt trăng', example: 'I see the moon at night.',      theme: 'nature', masteredBy: [] },
-  { id: 'v13', word: 'tree',     translation: 'cây xanh',  example: 'Birds sit in the tree.',        theme: 'nature', masteredBy: [] },
-  { id: 'v14', word: 'flower',   translation: 'bông hoa',  example: 'The flower is beautiful.',      theme: 'nature', masteredBy: [] },
-  { id: 'v15', word: 'river',    translation: 'con sông',  example: 'Fish live in the river.',       theme: 'nature', masteredBy: [] },
-  { id: 'v16', word: 'mountain', translation: 'ngọn núi',  example: 'The mountain is very tall.',    theme: 'nature', masteredBy: [] },
-  { id: 'v17', word: 'rain',     translation: 'mưa',       example: 'I love walking in the rain.',   theme: 'nature', masteredBy: [] },
-  { id: 'v18', word: 'cloud',    translation: 'đám mây',   example: 'The cloud is white and soft.',  theme: 'nature', masteredBy: [] },
-  { id: 'v19', word: 'wind',     translation: 'gió',       example: 'The wind blows the leaves.',    theme: 'nature', masteredBy: [] },
-  { id: 'v20', word: 'star',     translation: 'ngôi sao',  example: 'Stars shine bright at night.',  theme: 'nature', masteredBy: [] },
-  // Animals
-  { id: 'v21', word: 'cat',      translation: 'con mèo',  example: 'The cat is sleeping.',           theme: 'animals', masteredBy: [] },
-  { id: 'v22', word: 'dog',      translation: 'con chó',  example: 'My dog is very friendly.',       theme: 'animals', masteredBy: [] },
-  { id: 'v23', word: 'bird',     translation: 'con chim', example: 'The bird can fly high.',         theme: 'animals', masteredBy: [] },
-  { id: 'v24', word: 'fish',     translation: 'con cá',   example: 'Fish swim in the water.',        theme: 'animals', masteredBy: [] },
-  { id: 'v25', word: 'rabbit',   translation: 'con thỏ',  example: 'The rabbit eats carrots.',       theme: 'animals', masteredBy: [] },
-  { id: 'v26', word: 'tiger',    translation: 'con hổ',   example: 'The tiger is a big cat.',        theme: 'animals', masteredBy: [] },
-  { id: 'v27', word: 'elephant', translation: 'con voi',  example: 'Elephants have long trunks.',    theme: 'animals', masteredBy: [] },
-  { id: 'v28', word: 'monkey',   translation: 'con khỉ',  example: 'Monkeys can climb trees.',       theme: 'animals', masteredBy: [] },
-  { id: 'v29', word: 'bear',     translation: 'con gấu',  example: 'Bears sleep in winter.',         theme: 'animals', masteredBy: [] },
-  { id: 'v30', word: 'duck',     translation: 'con vịt',  example: 'Ducks swim in the pond.',        theme: 'animals', masteredBy: [] },
+  { id: 'v1',  word: 'apple',  translation: 'quả táo',   example: 'I eat an apple every day.',       theme: 'kitchen', masteredBy: [] },
+  { id: 'v2',  word: 'cup',    translation: 'cái cốc',   example: 'She drinks from a blue cup.',     theme: 'kitchen', masteredBy: ['child1'] },
+  { id: 'v3',  word: 'table',  translation: 'cái bàn',   example: 'We eat at the table.',            theme: 'kitchen', masteredBy: ['child1'] },
+  { id: 'v4',  word: 'chair',  translation: 'cái ghế',   example: 'Please sit on the chair.',        theme: 'kitchen', masteredBy: [] },
+  { id: 'v5',  word: 'spoon',  translation: 'cái thìa',  example: 'Use a spoon for soup.',           theme: 'kitchen', masteredBy: [] },
+  { id: 'v6',  word: 'fork',   translation: 'cái nĩa',   example: 'He eats dinner with a fork.',     theme: 'kitchen', masteredBy: [] },
+  { id: 'v7',  word: 'plate',  translation: 'cái đĩa',   example: 'Put food on the plate.',          theme: 'kitchen', masteredBy: [] },
+  { id: 'v8',  word: 'bowl',   translation: 'cái bát',   example: 'The soup is in the bowl.',        theme: 'kitchen', masteredBy: [] },
+  { id: 'v9',  word: 'knife',  translation: 'con dao',   example: 'Be careful with the knife.',      theme: 'kitchen', masteredBy: [] },
+  { id: 'v10', word: 'glass',  translation: 'cái ly',    example: 'Fill the glass with water.',      theme: 'kitchen', masteredBy: [] },
+  { id: 'v11', word: 'sun',    translation: 'mặt trời',  example: 'The sun is very bright.',         theme: 'nature',  masteredBy: ['child1'] },
+  { id: 'v12', word: 'moon',   translation: 'mặt trăng', example: 'I see the moon at night.',        theme: 'nature',  masteredBy: [] },
+  { id: 'v13', word: 'tree',   translation: 'cây xanh',  example: 'Birds sit in the tree.',          theme: 'nature',  masteredBy: [] },
+  { id: 'v14', word: 'flower', translation: 'bông hoa',  example: 'The flower is beautiful.',        theme: 'nature',  masteredBy: [] },
+  { id: 'v15', word: 'river',  translation: 'con sông',  example: 'Fish live in the river.',         theme: 'nature',  masteredBy: [] },
+  { id: 'v16', word: 'mountain', translation: 'ngọn núi', example: 'The mountain is very tall.',    theme: 'nature',  masteredBy: [] },
+  { id: 'v17', word: 'rain',   translation: 'mưa',       example: 'I love walking in the rain.',    theme: 'nature',  masteredBy: [] },
+  { id: 'v18', word: 'cloud',  translation: 'đám mây',   example: 'The cloud is white and soft.',   theme: 'nature',  masteredBy: [] },
+  { id: 'v19', word: 'wind',   translation: 'gió',       example: 'The wind blows the leaves.',     theme: 'nature',  masteredBy: [] },
+  { id: 'v20', word: 'star',   translation: 'ngôi sao',  example: 'Stars shine bright at night.',   theme: 'nature',  masteredBy: [] },
+  { id: 'v21', word: 'cat',    translation: 'con mèo',   example: 'The cat is sleeping.',            theme: 'animals', masteredBy: [] },
+  { id: 'v22', word: 'dog',    translation: 'con chó',   example: 'My dog is very friendly.',        theme: 'animals', masteredBy: [] },
+  { id: 'v23', word: 'bird',   translation: 'con chim',  example: 'The bird can fly high.',          theme: 'animals', masteredBy: [] },
+  { id: 'v24', word: 'fish',   translation: 'con cá',    example: 'Fish swim in the water.',         theme: 'animals', masteredBy: [] },
+  { id: 'v25', word: 'rabbit', translation: 'con thỏ',   example: 'The rabbit eats carrots.',        theme: 'animals', masteredBy: [] },
+  { id: 'v26', word: 'tiger',  translation: 'con hổ',    example: 'The tiger is a big cat.',         theme: 'animals', masteredBy: [] },
+  { id: 'v27', word: 'elephant', translation: 'con voi', example: 'Elephants have long trunks.',    theme: 'animals', masteredBy: [] },
+  { id: 'v28', word: 'monkey', translation: 'con khỉ',   example: 'Monkeys can climb trees.',        theme: 'animals', masteredBy: [] },
+  { id: 'v29', word: 'bear',   translation: 'con gấu',   example: 'Bears sleep in winter.',          theme: 'animals', masteredBy: [] },
+  { id: 'v30', word: 'duck',   translation: 'con vịt',   example: 'Ducks swim in the pond.',         theme: 'animals', masteredBy: [] },
+]
+
+const SEED_ANCESTORS: Ancestor[] = [
+  { id: 'anc1', name: 'Cụ Ông nội', gender: 'male',   relationship: 'Cụ nội', birthYear: 1920, deathYear: 1995, lunarDeathDay: 10, lunarDeathMonth: 3,  biography: 'Người sáng lập gia đình, sống trung thực và cần cù.', parentIds: [], photoUrl: undefined },
+  { id: 'anc2', name: 'Cụ Bà nội', gender: 'female',  relationship: 'Cụ nội', birthYear: 1925, deathYear: 2010, lunarDeathDay: 20, lunarDeathMonth: 8,  biography: 'Hiền lành, thương con cháu hết mực.',                 parentIds: [], spouseId: 'anc1' },
+  { id: 'anc3', name: 'Ông nội',   gender: 'male',    relationship: 'Ông nội', birthYear: 1948, deathYear: 2018, lunarDeathDay: 5,  lunarDeathMonth: 12, biography: 'Cựu chiến binh, yêu nước và yêu gia đình.',           parentIds: ['anc1', 'anc2'] },
+]
+
+const SEED_ANNIVERSARIES: Anniversary[] = [
+  { id: 'av1', name: 'Giỗ Cụ Ông nội', ancestorId: 'anc1', lunarDay: 10, lunarMonth: 3,  notes: 'Chuẩn bị mâm cỗ truyền thống' },
+  { id: 'av2', name: 'Giỗ Cụ Bà nội',  ancestorId: 'anc2', lunarDay: 20, lunarMonth: 8,  notes: 'Cả nhà tụ họp đông đủ' },
+  { id: 'av3', name: 'Giỗ Ông nội',    ancestorId: 'anc3', lunarDay: 5,  lunarMonth: 12, notes: 'Thắp hương tưởng nhớ' },
 ]
 
 // ─── Store type ───────────────────────────────────────────────────────────────
@@ -153,7 +164,12 @@ type Store = {
   appName: string
   bgImage: string
   darkMode: boolean
-  parentPin: string    // extra PIN required to switch to a parent profile
+  parentPin: string
+
+  // Supabase sync
+  familyCode: string   // unique per family, used as partition key in Supabase
+  familyName: string   // display name for this family
+  lastPushAt: number   // epoch ms of last successful push to Supabase (cross-device version vector)
 
   // Data
   members: Member[]
@@ -172,6 +188,10 @@ type Store = {
   vocabWords: VocabWord[]
   englishTheme: string
   calendarEvents: CalendarEvent[]
+
+  // Heritage
+  ancestors: Ancestor[]
+  anniversaries: Anniversary[]
 
   // Auth actions
   verifyPin: (input: string) => boolean
@@ -253,9 +273,24 @@ type Store = {
   removeVocabWord: (id: string) => void
   setEnglishTheme: (theme: string) => void
 
+  // Supabase sync
+  setFamilyCode: (code: string) => void
+  setFamilyName: (name: string) => void
+  setLastPushAt: (t: number) => void
+
   // Calendar events
   addCalendarEvent: (ev: Omit<CalendarEvent, 'id'>) => void
   removeCalendarEvent: (id: string) => void
+
+  // Heritage - Ancestors
+  addAncestor: (a: Omit<Ancestor, 'id'>) => void
+  updateAncestor: (id: string, data: Partial<Ancestor>) => void
+  removeAncestor: (id: string) => void
+
+  // Heritage - Anniversaries
+  addAnniversary: (ann: Omit<Anniversary, 'id'>) => void
+  updateAnniversary: (id: string, data: Partial<Anniversary>) => void
+  removeAnniversary: (id: string) => void
 }
 
 // ─── Store implementation ─────────────────────────────────────────────────────
@@ -271,6 +306,9 @@ export const useStore = create<Store>()(
       bgImage: '',
       darkMode: false,
       parentPin: '',
+      familyCode: 'fam-1234',  // deterministic: always fam-${pin}, never random
+      familyName: 'Gia đình của tôi',
+      lastPushAt: 0,
 
       members:        SEED_MEMBERS,
       health:         SEED_HEALTH,
@@ -288,15 +326,26 @@ export const useStore = create<Store>()(
       vocabWords:     SEED_VOCAB,
       englishTheme:   'kitchen',
       calendarEvents: [],
+      ancestors:      SEED_ANCESTORS,
+      anniversaries:  SEED_ANNIVERSARIES,
 
       // Auth
       verifyPin: (input) => {
-        if (input === get().pin) { set({ isAuthenticated: true }); return true }
+        if (input === get().pin) {
+          // familyCode is deterministic from PIN: same PIN on any device = same family partition
+          set({ isAuthenticated: true, familyCode: `fam-${input}` })
+          return true
+        }
         return false
       },
       logout: () => set({ isAuthenticated: false, currentMemberId: null }),
       setCurrentMember: (id) => set({ currentMemberId: id }),
-      setPin: (pin) => set({ pin }),
+      setPin: (pin) => set({ pin, familyCode: `fam-${pin}` }),
+
+      // Supabase sync
+      setFamilyCode: (familyCode) => set({ familyCode }),
+      setFamilyName: (familyName) => set({ familyName }),
+      setLastPushAt: (lastPushAt) => set({ lastPushAt }),
 
       // Appearance
       setAppName: (appName) => set({ appName }),
@@ -307,12 +356,12 @@ export const useStore = create<Store>()(
       // Members
       addMember: (m) => set((s) => ({ members: [...s.members, { ...m, id: nanoid(), tokens: 0 }] })),
       updateMember: (id, data) => set((s) => ({ members: s.members.map((m) => m.id === id ? { ...m, ...data } : m) })),
-      removeMember: (id) => set((s) => ({ members: s.members.filter((m) => m.id !== id) })),
+      removeMember: (id) => { queueDelete('members', id); set((s) => ({ members: s.members.filter((m) => m.id !== id) })) },
 
       // Health
       addHealthRecord: (memberId, date, height, weight) =>
         set((s) => ({ health: [...s.health, { id: nanoid(), memberId, date, height, weight }] })),
-      removeHealthRecord: (id) => set((s) => ({ health: s.health.filter((h) => h.id !== id) })),
+      removeHealthRecord: (id) => { queueDelete('health_records', id); set((s) => ({ health: s.health.filter((h) => h.id !== id) })) },
 
       // Skills
       addSkill: (memberId, category, name, icon) =>
@@ -322,7 +371,7 @@ export const useStore = create<Store>()(
           ? { ...sk, achieved: !sk.achieved, achievedDate: !sk.achieved ? todayStr() : undefined }
           : sk),
       })),
-      removeSkill: (id) => set((s) => ({ skills: s.skills.filter((sk) => sk.id !== id) })),
+      removeSkill: (id) => { queueDelete('skills', id); set((s) => ({ skills: s.skills.filter((sk) => sk.id !== id) })) },
 
       // Quests
       addQuest: (data) => set((s) => ({ quests: [{ ...data, id: nanoid(), status: 'active' as QuestStatus }, ...s.quests] })),
@@ -331,20 +380,22 @@ export const useStore = create<Store>()(
       })),
       approveQuest: (id) => set((s) => {
         const quest = s.quests.find((q) => q.id === id)
-        if (!quest || !quest.completedBy) return s
+        // Guard: only approve if status is exactly 'pending' — prevents double-token
+        // when two parents approve the same quest simultaneously on different devices.
+        if (!quest || !quest.completedBy || quest.status !== 'pending') return s
         return {
           quests: s.quests.map((q) => q.id === id ? { ...q, status: 'approved' } : q),
           members: s.members.map((m) => m.id === quest.completedBy ? { ...m, tokens: m.tokens + quest.tokens } : m),
         }
       }),
       rejectQuest: (id) => set((s) => ({ quests: s.quests.map((q) => q.id === id ? { ...q, status: 'rejected' } : q) })),
-      removeQuest: (id) => set((s) => ({ quests: s.quests.filter((q) => q.id !== id) })),
+      removeQuest: (id) => { queueDelete('quests', id); set((s) => ({ quests: s.quests.filter((q) => q.id !== id) })) },
 
       // Rewards
       addReward: (name, emoji, tokenCost) =>
         set((s) => ({ rewards: [...s.rewards, { id: nanoid(), name, emoji, tokenCost, active: true }] })),
       updateReward: (id, data) => set((s) => ({ rewards: s.rewards.map((r) => r.id === id ? { ...r, ...data } : r) })),
-      removeReward: (id) => set((s) => ({ rewards: s.rewards.filter((r) => r.id !== id) })),
+      removeReward: (id) => { queueDelete('rewards', id); set((s) => ({ rewards: s.rewards.filter((r) => r.id !== id) })) },
       redeemReward: (rewardId, memberId) => {
         const state = get()
         const reward = state.rewards.find((r) => r.id === rewardId)
@@ -370,61 +421,103 @@ export const useStore = create<Store>()(
       // Gratitude
       addGratitude: (from, to, message, color) =>
         set((s) => ({ gratitude: [{ id: nanoid(), from, to, message, color, timestamp: Date.now() }, ...s.gratitude] })),
-      removeGratitude: (id) => set((s) => ({ gratitude: s.gratitude.filter((g) => g.id !== id) })),
+      removeGratitude: (id) => { queueDelete('gratitude_notes', id); set((s) => ({ gratitude: s.gratitude.filter((g) => g.id !== id) })) },
 
       // Wheel
       addWheelItem: (category, label, emoji) =>
         set((s) => ({ wheelItems: [...s.wheelItems, { id: nanoid(), category, label, emoji }] })),
-      removeWheelItem: (id) => set((s) => ({ wheelItems: s.wheelItems.filter((w) => w.id !== id) })),
+      removeWheelItem: (id) => { queueDelete('wheel_items', id); set((s) => ({ wheelItems: s.wheelItems.filter((w) => w.id !== id) })) },
 
       // Quiz
       addQuizQuestion: (q) => set((s) => ({ quizQuestions: [...s.quizQuestions, { ...q, id: nanoid() }] })),
-      removeQuizQuestion: (id) => set((s) => ({ quizQuestions: s.quizQuestions.filter((q) => q.id !== id) })),
+      removeQuizQuestion: (id) => { queueDelete('quiz_questions', id); set((s) => ({ quizQuestions: s.quizQuestions.filter((q) => q.id !== id) })) },
 
       // Family Quests
       addFamilyQuest: (fq) => set((s) => ({ familyQuests: [...s.familyQuests, { ...fq, id: nanoid() }] })),
       incrementFamilyQuest: (id) => set((s) => ({
         familyQuests: s.familyQuests.map((fq) => fq.id === id ? { ...fq, currentDays: Math.min(fq.currentDays + 1, fq.targetDays) } : fq),
       })),
-      removeFamilyQuest: (id) => set((s) => ({ familyQuests: s.familyQuests.filter((fq) => fq.id !== id) })),
+      removeFamilyQuest: (id) => { queueDelete('family_quests', id); set((s) => ({ familyQuests: s.familyQuests.filter((fq) => fq.id !== id) })) },
 
       // Albums & Photos
       addAlbum: (title, date, coverEmoji, description) =>
         set((s) => ({ albums: [{ id: nanoid(), title, date, coverEmoji, description }, ...s.albums] })),
-      removeAlbum: (id) => set((s) => ({ albums: s.albums.filter((a) => a.id !== id), photos: s.photos.filter((p) => p.albumId !== id) })),
+      removeAlbum: (id) => {
+        queueDelete('albums', id)
+        // Cascade: queue deletion of all photos in this album
+        get().photos.filter((p) => p.albumId === id).forEach((p) => queueDelete('photos', p.id))
+        set((s) => ({ albums: s.albums.filter((a) => a.id !== id), photos: s.photos.filter((p) => p.albumId !== id) }))
+      },
       addPhoto: (albumId, dataUrl, caption, taggedMembers, date) =>
         set((s) => ({ photos: [...s.photos, { id: nanoid(), albumId, dataUrl, caption, taggedMembers, date }] })),
-      removePhoto: (id) => set((s) => ({ photos: s.photos.filter((p) => p.id !== id) })),
+      removePhoto: (id) => { queueDelete('photos', id); set((s) => ({ photos: s.photos.filter((p) => p.id !== id) })) },
 
       // Silent Heroes
       addSilentHero: (memberId, loggedBy, deed) =>
         set((s) => ({ silentHeroes: [{ id: nanoid(), memberId, loggedBy, deed, timestamp: Date.now(), reactions: [] }, ...s.silentHeroes] })),
       reactSilentHero: (id, memberId, emoji) => set((s) => ({
         silentHeroes: s.silentHeroes.map((h) =>
-          h.id === id
-            ? { ...h, reactions: [...h.reactions.filter((r) => r.memberId !== memberId), { memberId, emoji }] }
-            : h
+          h.id === id ? { ...h, reactions: [...h.reactions.filter((r) => r.memberId !== memberId), { memberId, emoji }] } : h
         ),
       })),
-      removeSilentHero: (id) => set((s) => ({ silentHeroes: s.silentHeroes.filter((h) => h.id !== id) })),
+      removeSilentHero: (id) => { queueDelete('silent_heroes', id); set((s) => ({ silentHeroes: s.silentHeroes.filter((h) => h.id !== id) })) },
 
       // Vocab / English
       addVocabWord: (w) => set((s) => ({ vocabWords: [...s.vocabWords, { ...w, id: nanoid(), masteredBy: [] }] })),
       masterVocabWord: (id, memberId) => set((s) => ({
-        vocabWords: s.vocabWords.map((v) =>
-          v.id === id ? { ...v, masteredBy: [...new Set([...v.masteredBy, memberId])] } : v
-        ),
+        vocabWords: s.vocabWords.map((v) => v.id === id ? { ...v, masteredBy: [...new Set([...v.masteredBy, memberId])] } : v),
       })),
       unmasterVocabWord: (id, memberId) => set((s) => ({
         vocabWords: s.vocabWords.map((v) => v.id === id ? { ...v, masteredBy: v.masteredBy.filter((m) => m !== memberId) } : v),
       })),
-      removeVocabWord: (id) => set((s) => ({ vocabWords: s.vocabWords.filter((v) => v.id !== id) })),
+      removeVocabWord: (id) => { queueDelete('vocab_words', id); set((s) => ({ vocabWords: s.vocabWords.filter((v) => v.id !== id) })) },
       setEnglishTheme: (englishTheme) => set({ englishTheme }),
 
       // Calendar events
       addCalendarEvent: (ev) => set((s) => ({ calendarEvents: [...s.calendarEvents, { ...ev, id: nanoid() }] })),
-      removeCalendarEvent: (id) => set((s) => ({ calendarEvents: s.calendarEvents.filter((e) => e.id !== id) })),
+      removeCalendarEvent: (id) => { queueDelete('calendar_events', id); set((s) => ({ calendarEvents: s.calendarEvents.filter((e) => e.id !== id) })) },
+
+      // Heritage - Ancestors
+      addAncestor: (a) => set((s) => ({ ancestors: [...s.ancestors, { ...a, id: nanoid() }] })),
+      updateAncestor: (id, data) => set((s) => ({ ancestors: s.ancestors.map((a) => a.id === id ? { ...a, ...data } : a) })),
+      removeAncestor: (id) => {
+        queueDelete('ancestors', id)
+        // Cascade: queue deletion of anniversaries linked to this ancestor
+        get().anniversaries.filter((ann) => ann.ancestorId === id).forEach((ann) => queueDelete('anniversaries', ann.id))
+        set((s) => ({
+          ancestors: s.ancestors.filter((a) => a.id !== id),
+          anniversaries: s.anniversaries.filter((ann) => ann.ancestorId !== id),
+        }))
+      },
+
+      // Heritage - Anniversaries
+      addAnniversary: (ann) => set((s) => ({ anniversaries: [...s.anniversaries, { ...ann, id: nanoid() }] })),
+      updateAnniversary: (id, data) => set((s) => ({ anniversaries: s.anniversaries.map((a) => a.id === id ? { ...a, ...data } : a) })),
+      removeAnniversary: (id) => { queueDelete('anniversaries', id); set((s) => ({ anniversaries: s.anniversaries.filter((a) => a.id !== id) })) },
     }),
-    { name: 'family-hub-v1' }
+    {
+      name: 'family-hub-v1',
+      version: 3,
+      migrate: (persisted: any, version: number) => {
+        if (version === 0) {
+          return { ...persisted, pin: '1234', isAuthenticated: false }
+        }
+        if (version < 2) {
+          return {
+            ...persisted,
+            familyCode: `fam-${persisted.pin || '1234'}`,
+            ancestors: SEED_ANCESTORS,
+            anniversaries: SEED_ANNIVERSARIES,
+          }
+        }
+        // v3: Enforce deterministic familyCode = fam-${pin}.
+        // Devices that had a nanoid familyCode (from the old random-init bug) are
+        // migrated here so all devices with the same PIN use the same partition.
+        if (persisted.pin && !persisted.familyCode?.startsWith('fam-')) {
+          return { ...persisted, familyCode: `fam-${persisted.pin}` }
+        }
+        return persisted
+      },
+    }
   )
 )

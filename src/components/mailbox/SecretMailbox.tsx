@@ -17,6 +17,8 @@ export default function SecretMailbox() {
   const [view, setView] = useState<'inbox' | 'compose' | 'read'>('inbox')
   const [selectedMail, setSelectedMail] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
+  const [replyDone, setReplyDone] = useState(false)
+  const [composeDone, setComposeDone] = useState(false)
   const [compose, setCompose] = useState({ to: [] as string[], subject: '', body: '', mood: 'happy' as MoodTag })
 
   const me = members.find((m) => m.id === currentMemberId)
@@ -34,16 +36,20 @@ export default function SecretMailbox() {
   const mail = mails.find((m) => m.id === selectedMail)
 
   const sendReply = () => {
-    if (!replyText.trim() || !selectedMail) return
+    if (!replyText.trim() || !selectedMail || replyDone) return
     replyMail(selectedMail, currentMemberId || '', replyText.trim())
-    setReplyText('')
+    setReplyDone(true)
+    setTimeout(() => { setReplyText(''); setReplyDone(false) }, 600)
   }
 
   const submitCompose = () => {
-    if (!compose.subject.trim() || !compose.body.trim() || compose.to.length === 0) return
+    if (!compose.subject.trim() || !compose.body.trim() || compose.to.length === 0 || composeDone) return
     sendMail(currentMemberId || '', compose.to, compose.subject, compose.body, compose.mood)
-    setCompose({ to: [], subject: '', body: '', mood: 'happy' })
-    setView('inbox')
+    setComposeDone(true)
+    setTimeout(() => {
+      setCompose({ to: [], subject: '', body: '', mood: 'happy' })
+      setView('inbox'); setComposeDone(false)
+    }, 700)
   }
 
   const toggleTo = (id: string) => {
@@ -188,9 +194,9 @@ export default function SecretMailbox() {
               <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)}
                 placeholder="Viết phản hồi của bạn..." rows={3}
                 className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none mb-3" />
-              <button onClick={sendReply} disabled={!replyText.trim()}
-                className="bg-violet-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-violet-700 disabled:opacity-50">
-                Gửi ❤️
+              <button onClick={sendReply} disabled={!replyText.trim() || replyDone}
+                className="bg-violet-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-violet-700 disabled:opacity-50 transition-all">
+                {replyDone ? '✅ Đã gửi!' : 'Gửi ❤️'}
               </button>
             </div>
           </motion.div>
@@ -248,11 +254,11 @@ export default function SecretMailbox() {
 
           <div className="flex gap-3">
             <button onClick={submitCompose}
-              disabled={!compose.subject.trim() || !compose.body.trim() || compose.to.length === 0}
-              className="flex-1 bg-rose-500 hover:bg-rose-600 text-white py-3 rounded-xl font-medium disabled:opacity-50">
-              💌 Gửi thư
+              disabled={!compose.subject.trim() || !compose.body.trim() || compose.to.length === 0 || composeDone}
+              className="flex-1 bg-rose-500 hover:bg-rose-600 text-white py-3 rounded-xl font-medium disabled:opacity-50 transition-all">
+              {composeDone ? '✅ Đã gửi!' : '💌 Gửi thư'}
             </button>
-            <button onClick={() => setView('inbox')} className="px-4 py-3 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 font-medium">Hủy</button>
+            <button onClick={() => setView('inbox')} disabled={composeDone} className="px-4 py-3 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 font-medium disabled:opacity-40">Hủy</button>
           </div>
         </motion.div>
       )}

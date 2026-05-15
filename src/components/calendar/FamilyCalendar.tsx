@@ -66,6 +66,7 @@ export default function FamilyCalendar() {
   const [month, setMonth] = useState(today.getMonth())
   const [selectedDay, setSelectedDay] = useState<number | null>(today.getDate())
   const [showAdd, setShowAdd] = useState(false)
+  const [addDone, setAddDone] = useState(false)
   const [form, setForm] = useState({ title: '', emoji: '🎉', date: '', color: 'bg-violet-500' })
 
   const prevMonth = () => { if (month === 0) { setYear(y => y - 1); setMonth(11) } else setMonth(m => m - 1); setSelectedDay(null) }
@@ -94,10 +95,13 @@ export default function FamilyCalendar() {
   }
 
   const addEvent = () => {
-    if (!form.title.trim() || !form.date) return
+    if (!form.title.trim() || !form.date || addDone) return
     addCalendarEvent({ title: form.title, emoji: form.emoji, date: form.date, color: form.color, createdBy: currentMemberId || '' })
-    setForm({ title: '', emoji: '🎉', date: '', color: 'bg-violet-500' })
-    setShowAdd(false)
+    setAddDone(true)
+    setTimeout(() => {
+      setForm({ title: '', emoji: '🎉', date: '', color: 'bg-violet-500' })
+      setShowAdd(false); setAddDone(false)
+    }, 600)
   }
 
   const EVENT_COLORS = ['bg-violet-500', 'bg-rose-500', 'bg-amber-500', 'bg-emerald-500', 'bg-blue-500', 'bg-pink-500']
@@ -153,8 +157,10 @@ export default function FamilyCalendar() {
                 </div>
               </div>
               <div className="flex gap-2 justify-end">
-                <button onClick={() => setShowAdd(false)} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100">Hủy</button>
-                <button onClick={addEvent} className="bg-violet-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-violet-700">Lưu</button>
+                <button onClick={() => setShowAdd(false)} disabled={addDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
+                <button onClick={addEvent} disabled={!form.title.trim() || !form.date || addDone} className="bg-violet-600 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-violet-700 disabled:opacity-50 transition-all">
+                  {addDone ? '✅ Đã lưu!' : 'Lưu'}
+                </button>
               </div>
             </div>
           </motion.div>

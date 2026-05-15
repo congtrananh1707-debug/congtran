@@ -13,14 +13,18 @@ export default function GratitudeWall() {
 
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ to: '', message: '', color: NOTE_COLORS[0] })
+  const [done, setDone] = useState(false)
 
   const others = members.filter((m) => m.id !== currentMemberId)
 
   const submit = () => {
-    if (!form.to || !form.message.trim()) return
+    if (!form.to || !form.message.trim() || done) return
     addGratitude(currentMemberId || '', form.to, form.message.trim(), form.color)
-    setForm({ to: '', message: '', color: NOTE_COLORS[0] })
-    setShowForm(false)
+    setDone(true)
+    setTimeout(() => {
+      setForm({ to: '', message: '', color: NOTE_COLORS[0] })
+      setShowForm(false); setDone(false)
+    }, 600)
   }
 
   return (
@@ -74,11 +78,11 @@ export default function GratitudeWall() {
             </div>
 
             <div className="flex gap-2">
-              <button onClick={submit} disabled={!form.to || !form.message.trim()}
-                className="bg-yellow-400 hover:bg-yellow-500 text-gray-800 px-5 py-2 rounded-xl font-medium text-sm disabled:opacity-50">
-                🌻 Đăng lên tường
+              <button onClick={submit} disabled={!form.to || !form.message.trim() || done}
+                className="bg-yellow-400 hover:bg-yellow-500 text-gray-800 px-5 py-2 rounded-xl font-medium text-sm disabled:opacity-50 transition-all">
+                {done ? '✅ Đã đăng!' : '🌻 Đăng lên tường'}
               </button>
-              <button onClick={() => setShowForm(false)} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100">Hủy</button>
+              <button onClick={() => setShowForm(false)} disabled={done} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
             </div>
           </motion.div>
         )}

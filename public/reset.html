@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reset PIN — MyBaoFamily</title>
+  <style>
+    body { font-family: sans-serif; display: flex; align-items: center; justify-content: center;
+           min-height: 100vh; margin: 0; background: linear-gradient(135deg, #6C63FF, #4B44CC); }
+    .card { background: white; border-radius: 24px; padding: 40px; text-align: center;
+            max-width: 340px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+    h1 { font-size: 1.4rem; color: #1f2937; margin: 12px 0 6px; }
+    p  { color: #6b7280; font-size: 0.9rem; margin: 0 0 24px; }
+    .pin { font-size: 2.5rem; font-weight: bold; color: #6C63FF; letter-spacing: 8px; margin: 16px 0; }
+    .btn { display: inline-block; background: #6C63FF; color: white; border: none;
+           padding: 14px 32px; border-radius: 14px; font-size: 1rem; font-weight: 600;
+           cursor: pointer; text-decoration: none; transition: background 0.2s; }
+    .btn:hover { background: #4B44CC; }
+    .ok { color: #10b981; font-size: 1.1rem; font-weight: 600; margin: 16px 0; display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size:3rem">🔐</div>
+    <h1>Reset mã PIN</h1>
+    <p>Nhấn nút bên dưới để đặt lại PIN gia đình về:</p>
+    <div class="pin">1234</div>
+    <p class="ok" id="ok">✅ Đã reset thành công!</p>
+    <button class="btn" onclick="doReset()">Reset PIN về 1234</button>
+  </div>
+
+  <script>
+    function doReset() {
+      try {
+        var raw = localStorage.getItem('family-hub-v1') || '{}'
+        var d = JSON.parse(raw)
+        if (!d.state) d.state = {}
+        d.state.pin = '1234'
+        d.state.isAuthenticated = false
+        d.version = 1
+        localStorage.setItem('family-hub-v1', JSON.stringify(d))
+        document.getElementById('ok').style.display = 'block'
+        setTimeout(function() { window.location.href = '/' }, 1200)
+      } catch(e) {
+        // If localStorage is empty or corrupted, just clear it
+        localStorage.removeItem('family-hub-v1')
+        document.getElementById('ok').style.display = 'block'
+        setTimeout(function() { window.location.href = '/' }, 1200)
+      }
+    }
+  </script>
+</body>
+</html>

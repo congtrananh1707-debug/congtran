@@ -38,11 +38,13 @@ export default function SilentHeroes() {
     count: silentHeroes.filter((h) => h.memberId === m.id && h.timestamp >= startOfMonth.getTime()).length,
   })).sort((a, b) => b.count - a.count).filter((x) => x.count > 0)
 
+  const [addDone, setAddDone] = useState(false)
+
   const submitDeed = () => {
-    if (!form.deed.trim() || !form.memberId) return
+    if (!form.deed.trim() || !form.memberId || addDone) return
     addSilentHero(form.memberId, currentMemberId || '', form.deed.trim())
-    setForm({ ...form, deed: '' })
-    setShowAdd(false)
+    setAddDone(true)
+    setTimeout(() => { setForm({ ...form, deed: '' }); setShowAdd(false); setAddDone(false) }, 600)
   }
 
   return (
@@ -117,8 +119,10 @@ export default function SilentHeroes() {
                 />
               </div>
               <div className="flex gap-2 justify-end">
-                <button onClick={() => setShowAdd(false)} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100">Hủy</button>
-                <button onClick={submitDeed} className="bg-amber-500 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-amber-600">Ghi nhận 🌟</button>
+                <button onClick={() => setShowAdd(false)} disabled={addDone} className="text-gray-500 px-4 py-2 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
+                <button onClick={submitDeed} disabled={!form.deed.trim() || addDone} className="bg-amber-500 text-white px-4 py-2 rounded-xl font-medium text-sm hover:bg-amber-600 disabled:opacity-50 transition-all">
+                  {addDone ? '✅ Đã ghi nhận!' : 'Ghi nhận 🌟'}
+                </button>
               </div>
             </div>
           </motion.div>

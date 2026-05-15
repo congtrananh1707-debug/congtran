@@ -1,11 +1,11 @@
 import type { AppView } from '../../types'
 
 const TABS: { view: AppView; icon: string; label: string }[] = [
-  { view: 'dashboard', icon: '🏠', label: 'Nhà'      },
-  { view: 'quests',    icon: '⚔️', label: 'Nhiệm vụ' },
-  { view: 'english',   icon: '🇬🇧', label: 'Tiếng Anh'},
-  { view: 'calendar',  icon: '📅', label: 'Lịch'     },
-  { view: 'heroes',    icon: '🦸', label: 'Anh hùng' },
+  { view: 'dashboard', icon: '🏠',  label: 'Nhà'      },
+  { view: 'quests',    icon: '⚔️',  label: 'Nhiệm vụ' },
+  { view: 'calendar',  icon: '📅',  label: 'Lịch'     },
+  { view: 'heritage',  icon: '🏛️', label: 'Gia phả'  },
+  { view: 'profiles',  icon: '👨‍👩‍👧', label: 'Gia đình' },
 ]
 
 type Props = { view: AppView; setView: (v: AppView) => void }

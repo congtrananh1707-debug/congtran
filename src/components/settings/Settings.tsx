@@ -1,28 +1,38 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useStore } from '../../store/useStore'
+import { isParentRole } from '../../types'
+import { isSupabaseConfigured } from '../../lib/supabase'
+import { pushToSupabase, registerFamilyPin, deletePartition, listPartitions } from '../../hooks/useSupabaseSync'
+import type { PartitionInfo } from '../../hooks/useSupabaseSync'
+import { compressImage } from '../../utils/image'
 
 export default function Settings() {
-  const pin          = useStore((s) => s.pin)
-  const setPin       = useStore((s) => s.setPin)
-  const parentPin    = useStore((s) => s.parentPin)
-  const setParentPin = useStore((s) => s.setParentPin)
-  const logout       = useStore((s) => s.logout)
+  const pin             = useStore((s) => s.pin)
+  const setPin          = useStore((s) => s.setPin)
+  const parentPin       = useStore((s) => s.parentPin)
+  const setParentPin    = useStore((s) => s.setParentPin)
+  const logout          = useStore((s) => s.logout)
   const currentMemberId = useStore((s) => s.currentMemberId)
-  const members      = useStore((s) => s.members)
-  const appName      = useStore((s) => s.appName)
-  const setAppName   = useStore((s) => s.setAppName)
-  const bgImage      = useStore((s) => s.bgImage)
-  const setBgImage   = useStore((s) => s.setBgImage)
-  const darkMode     = useStore((s) => s.darkMode)
-  const setDarkMode  = useStore((s) => s.setDarkMode)
+  const members         = useStore((s) => s.members)
+  const appName         = useStore((s) => s.appName)
+  const setAppName      = useStore((s) => s.setAppName)
+  const bgImage         = useStore((s) => s.bgImage)
+  const setBgImage      = useStore((s) => s.setBgImage)
+  const darkMode        = useStore((s) => s.darkMode)
+  const setDarkMode     = useStore((s) => s.setDarkMode)
+  const familyCode      = useStore((s) => s.familyCode)
+  const familyName      = useStore((s) => s.familyName)
+  const setFamilyName   = useStore((s) => s.setFamilyName)
+  const lastPushAt      = useStore((s) => s.lastPushAt)
 
   const me = members.find((m) => m.id === currentMemberId)
-  const isParent = me?.role === 'dad' || me?.role === 'mom'
+  const isParent = me ? isParentRole(me.role) : false
 
   // Family PIN
-  const [newPin, setNewPin]       = useState('')
+  const [newPin, setNewPin]         = useState('')
   const [confirmPin, setConfirmPin] = useState('')
-  const [pinMsg, setPinMsg]       = useState('')
+  const [pinMsg, setPinMsg]         = useState('')
+  const [migrating, setMigrating]   = useState(false)
 
   // Parent PIN
   const [newParentPin, setNewParentPin]     = useState('')
@@ -33,6 +43,77 @@ export default function Settings() {
   const [nameInput, setNameInput] = useState(appName)
   const [nameMsg, setNameMsg]     = useState('')
 
+  // Family name
+  const [familyNameInput, setFamilyNameInput] = useState(familyName)
+  const [familyNameMsg, setFamilyNameMsg]     = useState('')
+
+  // Sync
+  const [syncMsg, setSyncMsg] = useState('')
+
+  // Hard reset
+  const [resetting, setResetting] = useState(false)
+
+  const resetAll = async () => {
+    const step1 = window.confirm(
+      '⚠️ XÓA TOÀN BỘ DỮ LIỆU?\n\n' +
+      'Thao tác này sẽ:\n' +
+      '• Xóa TẤT CẢ data trên Supabase (partition hiện tại)\n' +
+      '• Xóa TẤT CẢ data trên thiết bị này\n' +
+      '• Đưa app về trạng thái cài đặt mới\n\n' +
+      'KHÔNG THỂ HOÀN TÁC!'
+    )
+    if (!step1) return
+
+    const step2 = window.confirm('Bạn chắc chắn 100%? Nhấn OK để xóa.')
+    if (!step2) return
+
+    setResetting(true)
+    try {
+      // 1. Wipe Supabase partition
+      if (isSupabaseConfigured) {
+        await deletePartition(familyCode)
+      }
+    } catch { /* ignore network errors — still clear local */ } finally {
+      // 2. Clear every localStorage key this app uses
+      localStorage.removeItem('family-hub-v1')
+      localStorage.removeItem('family-hub-pending-deletes')
+      // 3. Reload to fresh state
+      window.location.reload()
+    }
+  }
+
+  // Partition cleanup
+  const [partitions, setPartitions]       = useState<PartitionInfo[] | null>(null)
+  const [scanLoading, setScanLoading]     = useState(false)
+  const [deletingCode, setDeletingCode]   = useState<string | null>(null)
+  const [cleanupMsg, setCleanupMsg]       = useState('')
+
+  const scanPartitions = useCallback(async () => {
+    setScanLoading(true)
+    setCleanupMsg('')
+    const list = await listPartitions()
+    setPartitions(list)
+    setScanLoading(false)
+    if (list.length <= 1) setCleanupMsg('✅ Chỉ có 1 partition — không cần dọn dẹp!')
+  }, [])
+
+  const handleDeletePartition = useCallback(async (code: string) => {
+    if (!window.confirm(
+      `Xóa TOÀN BỘ dữ liệu của partition:\n${code}\n\nThao tác này KHÔNG thể hoàn tác!`
+    )) return
+    setDeletingCode(code)
+    setCleanupMsg(`🔄 Đang xóa ${code}...`)
+    const { ok, errors } = await deletePartition(code)
+    setDeletingCode(null)
+    if (ok) {
+      setPartitions((prev) => prev?.filter((p) => p.familyCode !== code) ?? null)
+      setCleanupMsg(`✅ Đã xóa ${code}`)
+    } else {
+      setCleanupMsg(`❌ Lỗi: ${errors[0] ?? 'Không xác định'}`)
+    }
+    setTimeout(() => setCleanupMsg(''), 5000)
+  }, [])
+
   // Background image
   const [bgUrl, setBgUrl]   = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -40,13 +121,51 @@ export default function Settings() {
   const filterDigits = (v: string) => v.replace(/\D/g, '').slice(0, 8)
 
   const changePin = () => {
-    if (newPin.length < 4)  { setPinMsg('PIN phải có 4–8 chữ số!'); return }
+    if (newPin.length < 4)     { setPinMsg('PIN phải có 4–8 chữ số!'); return }
     if (!/^\d+$/.test(newPin)) { setPinMsg('PIN chỉ được chứa số 0-9!'); return }
-    if (newPin !== confirmPin) { setPinMsg('Mã PIN không khớp!'); return }
-    setPin(newPin)
+    if (newPin !== confirmPin)  { setPinMsg('Mã PIN không khớp!'); return }
+    if (newPin === pin)         { setPinMsg('PIN mới phải khác PIN cũ!'); return }
+
+    // Capture old partition BEFORE overwriting familyCode
+    const oldFamilyCode = familyCode
+    const captured      = newPin
+
+    // Switch locally first (optimistic)
+    setPin(captured)
     setNewPin(''); setConfirmPin('')
-    setPinMsg('✅ Đổi PIN thành công!')
-    setTimeout(() => setPinMsg(''), 3000)
+
+    if (!isSupabaseConfigured) {
+      setPinMsg('✅ Đổi PIN thành công!')
+      setTimeout(() => setPinMsg(''), 4000)
+      return
+    }
+
+    setMigrating(true)
+    setPinMsg('🔄 Bước 1/3 — Sao chép dữ liệu sang partition mới...')
+
+    pushToSupabase(`fam-${captured}`)
+      .then(() => {
+        setPinMsg('🔄 Bước 2/3 — Đăng ký PIN mới...')
+        return registerFamilyPin(`fam-${captured}`, captured, appName)
+      })
+      .then(() => {
+        setPinMsg('🔄 Bước 3/3 — Xóa partition cũ...')
+        return deletePartition(oldFamilyCode)
+      })
+      .then(({ ok, errors }) => {
+        if (ok) {
+          setPinMsg('✅ Hoàn tất! PIN mới đã kích hoạt, partition cũ đã xóa. Thiết bị khác cần nhập PIN mới để đồng bộ.')
+        } else {
+          // Data is safe in new partition, but old partition cleanup had errors
+          setPinMsg(`⚠️ Dữ liệu đã chuyển sang PIN mới, nhưng xóa partition cũ có lỗi (${errors[0] ?? ''}). Partition cũ sẽ bị cô lập.`)
+        }
+        setTimeout(() => setPinMsg(''), 10000)
+      })
+      .catch((err: any) => {
+        setPinMsg(`❌ Lỗi: ${err?.message ?? 'Không xác định'}. Dữ liệu cục bộ đã đổi PIN, nhưng Supabase chưa cập nhật.`)
+        setTimeout(() => setPinMsg(''), 8000)
+      })
+      .finally(() => setMigrating(false))
   }
 
   const changeParentPin = () => {
@@ -71,13 +190,38 @@ export default function Settings() {
     setTimeout(() => setNameMsg(''), 2000)
   }
 
-  const handleBgFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const saveFamilyName = () => {
+    if (!familyNameInput.trim()) return
+    setFamilyName(familyNameInput.trim())
+    if (isSupabaseConfigured) {
+      registerFamilyPin(familyCode, pin, familyNameInput.trim()).catch(console.error)
+    }
+    setFamilyNameMsg('✅ Đã lưu!')
+    setTimeout(() => setFamilyNameMsg(''), 2000)
+  }
+
+  const manualSync = async () => {
+    if (!isSupabaseConfigured) return
+    setSyncMsg('🔄 Đang đồng bộ...')
+    try {
+      const { ok, errors } = await pushToSupabase(familyCode)
+      setSyncMsg(ok ? '✅ Đồng bộ thành công!' : `⚠️ ${errors[0] ?? 'Lỗi không xác định'}`)
+    } catch {
+      setSyncMsg('❌ Không thể kết nối Supabase')
+    }
+    setTimeout(() => setSyncMsg(''), 4000)
+  }
+
+  const handleBgFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 3 * 1024 * 1024) { alert('Ảnh quá lớn! Tối đa 3MB'); return }
-    const reader = new FileReader()
-    reader.onload = (ev) => setBgImage(ev.target?.result as string)
-    reader.readAsDataURL(file)
+    try {
+      // Background: 1920 px max so it looks good on large screens at lower quality
+      const dataUrl = await compressImage(file, { maxPx: 1920, quality: 0.70 })
+      setBgImage(dataUrl)
+    } catch (err: any) {
+      alert(err?.message ?? 'Không thể xử lý ảnh, thử lại!')
+    }
   }
 
   const handleBgUrl = () => {
@@ -117,6 +261,88 @@ export default function Settings() {
 
       {isParent && (
         <>
+          {/* Family Identity */}
+          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-3xl p-5 shadow-sm border border-emerald-200 dark:border-emerald-700">
+            <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-1 flex items-center gap-2">🏡 Danh tính gia đình</h3>
+            <p className="text-xs text-gray-400 mb-4">Mã gia đình dùng để kết nối các thiết bị — mọi thiết bị nhập cùng PIN sẽ dùng chung dữ liệu</p>
+
+            {/* Family name */}
+            <div className="mb-3">
+              <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Tên gia đình</label>
+              <div className="flex gap-2">
+                <input
+                  value={familyNameInput}
+                  onChange={(e) => setFamilyNameInput(e.target.value)}
+                  className="flex-1 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 text-sm"
+                  maxLength={40}
+                />
+                <button onClick={saveFamilyName} className="bg-emerald-600 text-white px-4 rounded-xl font-medium text-sm hover:bg-emerald-700">Lưu</button>
+              </div>
+              {familyNameMsg && <p className="text-emerald-600 text-sm mt-1">{familyNameMsg}</p>}
+            </div>
+
+            {/* Family code (partition key) */}
+            <div className="mb-3">
+              <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Mã phân vùng Supabase</label>
+              <div className="flex gap-2 items-center">
+                <code className="flex-1 text-xs font-mono bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl p-3 text-violet-700 dark:text-violet-400 truncate select-all">
+                  {familyCode}
+                </code>
+                <button
+                  onClick={() => navigator.clipboard?.writeText(familyCode)}
+                  className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-3 py-2 rounded-xl hover:bg-gray-200"
+                >
+                  📋
+                </button>
+              </div>
+            </div>
+
+            {/* Sync status */}
+            {isSupabaseConfigured && (
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  {lastPushAt > 0
+                    ? `Đồng bộ lần cuối: ${new Date(lastPushAt).toLocaleTimeString('vi-VN')}`
+                    : 'Chưa đồng bộ lần nào'}
+                </div>
+                <button
+                  onClick={manualSync}
+                  className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-xl hover:bg-emerald-700"
+                >
+                  🔄 Sync ngay
+                </button>
+              </div>
+            )}
+            {syncMsg && <p className={`text-sm mt-2 ${syncMsg.startsWith('✅') ? 'text-emerald-600' : 'text-orange-500'}`}>{syncMsg}</p>}
+
+            {/* How to connect new device */}
+            <details className="mt-4">
+              <summary className="text-xs text-emerald-700 dark:text-emerald-400 cursor-pointer select-none font-medium">
+                📱 Kết nối thiết bị mới?
+              </summary>
+              <div className="mt-2 text-xs text-gray-600 dark:text-gray-400 space-y-1 bg-white/60 dark:bg-gray-800/60 rounded-xl p-3">
+                <p>1. Mở app trên thiết bị mới</p>
+                <p>2. Nhập cùng mã PIN: <strong className="font-mono">{'*'.repeat(pin.length)}</strong> ({pin.length} chữ số)</p>
+                <p>3. App tự động tìm gia đình trên Supabase và đồng bộ dữ liệu</p>
+                {!isSupabaseConfigured && <p className="text-orange-500 mt-1">⚠️ Cần cấu hình Supabase để kết nối đa thiết bị</p>}
+              </div>
+            </details>
+
+            {/* Clan connection groundwork */}
+            <details className="mt-3">
+              <summary className="text-xs text-teal-700 dark:text-teal-400 cursor-pointer select-none font-medium">
+                🌳 Kết nối họ tộc (sắp ra mắt)
+              </summary>
+              <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 bg-white/60 dark:bg-gray-800/60 rounded-xl p-3 space-y-1">
+                <p>Tính năng đang phát triển — cho phép:</p>
+                <p>• Kết nối nhiều gia đình trong cùng họ tộc</p>
+                <p>• Xây dựng cây gia phả chung toàn họ</p>
+                <p>• Chia sẻ thông tin ngày giỗ, kỵ giữa các gia đình</p>
+                <p className="text-teal-600 dark:text-teal-400 mt-1">Mã gia đình của bạn: <code className="font-mono">{familyCode.slice(0, 12)}…</code></p>
+              </div>
+            </details>
+          </div>
+
           {/* App name */}
           <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
             <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-3 flex items-center gap-2">✏️ Tên ứng dụng</h3>
@@ -193,9 +419,17 @@ export default function Settings() {
                   maxLength={8}
                 />
               </div>
-              {pinMsg && <p className={`text-sm ${pinMsg.startsWith('✅') ? 'text-emerald-600' : 'text-red-500'}`}>{pinMsg}</p>}
-              <button onClick={changePin} className="bg-violet-600 text-white px-5 py-2.5 rounded-xl font-medium text-sm hover:bg-violet-700">
-                Đổi PIN
+              {pinMsg && (
+                <p className={`text-sm ${pinMsg.startsWith('✅') ? 'text-emerald-600' : pinMsg.startsWith('🔄') ? 'text-blue-500' : 'text-red-500'}`}>
+                  {pinMsg}
+                </p>
+              )}
+              <button
+                onClick={changePin}
+                disabled={migrating}
+                className="bg-violet-600 text-white px-5 py-2.5 rounded-xl font-medium text-sm hover:bg-violet-700 disabled:opacity-50"
+              >
+                {migrating ? '🔄 Đang chuyển dữ liệu...' : 'Đổi PIN'}
               </button>
             </div>
           </div>
@@ -244,6 +478,117 @@ export default function Settings() {
         </>
       )}
 
+      {/* ── Partition Cleanup ───────────────────────────────────────────────── */}
+      {isParent && isSupabaseConfigured && (
+        <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
+          <div className="flex items-start justify-between mb-1 gap-2">
+            <div>
+              <h3 className="font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                🗂️ Dọn dẹp phân vùng dữ liệu
+              </h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Xóa các partition cũ còn sót lại sau khi đổi PIN
+              </p>
+            </div>
+            <button
+              onClick={scanPartitions}
+              disabled={scanLoading}
+              className="flex-shrink-0 text-xs bg-violet-600 text-white px-3 py-1.5 rounded-xl font-medium hover:bg-violet-700 disabled:opacity-50"
+            >
+              {scanLoading ? '🔍 Đang quét...' : '🔍 Quét'}
+            </button>
+          </div>
+
+          {cleanupMsg && (
+            <p className={`text-sm mt-2 ${
+              cleanupMsg.startsWith('✅') ? 'text-emerald-600'
+              : cleanupMsg.startsWith('❌') ? 'text-red-500'
+              : 'text-blue-500'
+            }`}>{cleanupMsg}</p>
+          )}
+
+          {partitions !== null && partitions.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {partitions.map((p) => {
+                const isCurrent = p.familyCode === familyCode
+                const lastSync  = p.lastPushAt > 0
+                  ? new Date(p.lastPushAt).toLocaleString('vi-VN')
+                  : 'Chưa rõ'
+                return (
+                  <div
+                    key={p.familyCode}
+                    className={`rounded-2xl p-3 border flex items-center gap-3 ${
+                      isCurrent
+                        ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-600'
+                        : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700'
+                    }`}
+                  >
+                    <span className="text-xl flex-shrink-0">{isCurrent ? '✅' : '⚠️'}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <code className="text-xs font-mono text-gray-700 dark:text-gray-300 truncate">
+                          {p.familyCode}
+                        </code>
+                        {isCurrent && (
+                          <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">
+                            Đang dùng
+                          </span>
+                        )}
+                        {!isCurrent && (
+                          <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">
+                            Partition cũ
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {p.memberCount} thành viên · Lần push: {lastSync}
+                      </p>
+                    </div>
+                    {!isCurrent && (
+                      <button
+                        onClick={() => handleDeletePartition(p.familyCode)}
+                        disabled={deletingCode === p.familyCode}
+                        className="flex-shrink-0 text-xs bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-xl font-medium disabled:opacity-50"
+                      >
+                        {deletingCode === p.familyCode ? '⏳' : '🗑 Xóa'}
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {partitions !== null && partitions.length === 0 && (
+            <p className="text-sm text-gray-400 mt-2">Không tìm thấy partition nào.</p>
+          )}
+        </div>
+      )}
+
+      {/* Supabase Sync */}
+      <div className={`rounded-3xl p-5 shadow-sm border ${isSupabaseConfigured ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'}`}>
+        <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-1 flex items-center gap-2">
+          🔄 Đồng bộ đa thiết bị
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isSupabaseConfigured ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>
+            {isSupabaseConfigured ? '🟢 Bật' : '⚪ Chưa cấu hình'}
+          </span>
+        </h3>
+
+        {isSupabaseConfigured ? (
+          <div className="space-y-2 mt-3 text-sm text-gray-600 dark:text-gray-400">
+            <p>✅ <strong>Tự động theo mã PIN</strong> — mọi thiết bị nhập cùng một PIN sẽ đồng bộ chung dữ liệu.</p>
+            <p>🔄 Dữ liệu đồng bộ realtime khi có thay đổi.</p>
+            <p className="text-xs text-gray-400 pt-1 border-t border-gray-100 dark:border-gray-700">
+              Partition: <code className="font-mono text-violet-600 dark:text-violet-400">{familyCode}</code>
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+            Supabase chưa được cấu hình. Dữ liệu chỉ lưu trên thiết bị này.
+          </p>
+        )}
+      </div>
+
       {/* Data info */}
       <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
         <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-3">💾 Lưu trữ dữ liệu</h3>
@@ -288,11 +633,35 @@ export default function Settings() {
           <p>1. Nhấn <strong>F12</strong> → tab <strong>Console</strong></p>
           <p>2. Dán lệnh sau rồi nhấn Enter:</p>
           <code className="block mt-1 bg-black/20 rounded p-2 text-green-400 text-xs break-all select-all">
-            {`let d=JSON.parse(localStorage.getItem('family-hub-v1')||'{}');d.state={...d.state,pin:'1234'};localStorage.setItem('family-hub-v1',JSON.stringify(d));location.reload()`}
+            {`let d=JSON.parse(localStorage.getItem('family-hub-v1')||'{}');d.state={...d.state,pin:'1234',familyCode:'fam-1234'};localStorage.setItem('family-hub-v1',JSON.stringify(d));location.reload()`}
           </code>
-          <p className="mt-1">3. PIN sẽ được reset về <strong>1234</strong></p>
+          <p className="mt-1">3. PIN và partition sẽ được reset về <strong>1234</strong></p>
         </div>
       </details>
+
+      {/* ── Danger Zone ─────────────────────────────────────────────────────── */}
+      {isParent && (
+        <div className="border-2 border-red-200 dark:border-red-800 rounded-3xl p-5">
+          <h3 className="font-bold text-red-600 dark:text-red-400 mb-1 flex items-center gap-2">
+            ☢️ Vùng nguy hiểm
+          </h3>
+          <p className="text-xs text-red-400 mb-4">
+            Các thao tác dưới đây không thể hoàn tác. Hãy chắc chắn trước khi thực hiện.
+          </p>
+          <button
+            onClick={resetAll}
+            disabled={resetting}
+            className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white py-3 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2"
+          >
+            {resetting
+              ? '⏳ Đang xóa toàn bộ dữ liệu...'
+              : '🗑️ Reset toàn bộ — Làm lại từ đầu'}
+          </button>
+          <p className="text-xs text-red-400 text-center mt-2">
+            Xóa data trên Supabase + localStorage → khởi động lại app sạch
+          </p>
+        </div>
+      )}
 
       {/* Logout */}
       <button onClick={logout} className="w-full bg-red-50 dark:bg-red-900/30 hover:bg-red-100 text-red-600 py-3.5 rounded-2xl font-medium transition-all">

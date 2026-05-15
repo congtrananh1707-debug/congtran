@@ -2,6 +2,8 @@ import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../../store/useStore'
 import { formatDate } from '../../utils/helpers'
+import { compressImage, formatBytes, dataUrlBytes } from '../../utils/image'
+import { isParentRole } from '../../types'
 
 const COVER_EMOJIS = ['📸', '🎂', '🏖️', '🎄', '🌸', '🎊', '🏕️', '🎭', '🌍', '🎓', '🎁', '🌺']
 
@@ -16,16 +18,20 @@ export default function MemoryAlbums() {
   const removePhoto = useStore((s) => s.removePhoto)
 
   const me = members.find((m) => m.id === currentMemberId)
-  const isParent = me?.role === 'dad' || me?.role === 'mom'
+  const isParent = me ? isParentRole(me.role) : false
 
   const [view, setView] = useState<'list' | 'album' | 'slideshow'>('list')
   const [selectedAlbum, setSelectedAlbum] = useState<string | null>(null)
   const [slideshowIdx, setSlideshowIdx] = useState(0)
   const [showAddAlbum, setShowAddAlbum] = useState(false)
   const [showAddPhoto, setShowAddPhoto] = useState(false)
+  const [albumDone, setAlbumDone] = useState(false)
+  const [photoDone, setPhotoDone] = useState(false)
   const [albumForm, setAlbumForm] = useState({ title: '', date: new Date().toISOString().split('T')[0], coverEmoji: '📸', description: '' })
   const [photoForm, setPhotoForm] = useState({ caption: '', taggedMembers: [] as string[], date: new Date().toISOString().split('T')[0] })
-  const [photoData, setPhotoData] = useState<string>('')
+  const [photoData, setPhotoData]       = useState<string>('')
+  const [compressing, setCompressing]   = useState(false)
+  const [compressInfo, setCompressInfo] = useState('')   // "512 KB → 78 KB"
   const fileRef = useRef<HTMLInputElement>(null)
 
   const currentAlbum = albums.find((a) => a.id === selectedAlbum)
@@ -41,28 +47,57 @@ export default function MemoryAlbums() {
     setView('slideshow')
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) { alert('Ảnh quá lớn! Vui lòng chọn ảnh dưới 2MB.'); return }
-    const reader = new FileReader()
-    reader.onload = (ev) => setPhotoData(ev.target?.result as string || '')
-    reader.readAsDataURL(file)
+
+    // Warn if localStorage is getting full (>70% of ~5 MB typical limit)
+    try {
+      const stored = localStorage.getItem('family-hub-v1') ?? ''
+      const usedKB = Math.round(new Blob([stored]).size / 1024)
+      if (usedKB > 3500) {
+        const ok = window.confirm(
+          `Bộ nhớ đang dùng ~${usedKB} KB (gần đầy). Thêm ảnh có thể gây lỗi lưu trữ.\nTiếp tục không?`
+        )
+        if (!ok) return
+      }
+    } catch { /* ignore */ }
+
+    setCompressing(true)
+    setCompressInfo('')
+    try {
+      const originalKB = formatBytes(file.size)
+      // Compress: max 1280 px, 75% quality, output WebP
+      const dataUrl = await compressImage(file, { maxPx: 1280, quality: 0.75 })
+      const compressedKB = formatBytes(dataUrlBytes(dataUrl))
+      setPhotoData(dataUrl)
+      setCompressInfo(`${originalKB} → ${compressedKB}`)
+    } catch (err: any) {
+      alert(err?.message ?? 'Không thể xử lý ảnh, thử lại!')
+    } finally {
+      setCompressing(false)
+    }
   }
 
   const submitAlbum = () => {
-    if (!albumForm.title.trim()) return
+    if (!albumForm.title.trim() || albumDone) return
     addAlbum(albumForm.title.trim(), albumForm.date, albumForm.coverEmoji, albumForm.description)
-    setAlbumForm({ title: '', date: new Date().toISOString().split('T')[0], coverEmoji: '📸', description: '' })
-    setShowAddAlbum(false)
+    setAlbumDone(true)
+    setTimeout(() => {
+      setAlbumForm({ title: '', date: new Date().toISOString().split('T')[0], coverEmoji: '📸', description: '' })
+      setShowAddAlbum(false); setAlbumDone(false)
+    }, 600)
   }
 
   const submitPhoto = () => {
-    if (!photoData || !selectedAlbum) return
+    if (!photoData || !selectedAlbum || photoDone) return
     addPhoto(selectedAlbum, photoData, photoForm.caption, photoForm.taggedMembers, photoForm.date)
-    setPhotoData('')
-    setPhotoForm({ caption: '', taggedMembers: [], date: new Date().toISOString().split('T')[0] })
-    setShowAddPhoto(false)
+    setPhotoDone(true)
+    setTimeout(() => {
+      setPhotoData(''); setPhotoForm({ caption: '', taggedMembers: [], date: new Date().toISOString().split('T')[0] })
+      setShowAddPhoto(false); setPhotoDone(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }, 600)
   }
 
   const toggleTag = (id: string) => {
@@ -146,14 +181,29 @@ export default function MemoryAlbums() {
             >
               <h3 className="font-bold text-gray-700 mb-4">📸 Thêm ảnh</h3>
               <div className="mb-3">
-                <div onClick={() => fileRef.current?.click()}
-                  className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer hover:bg-gray-50 transition-colors ${photoData ? 'border-violet-400' : 'border-gray-300'}`}>
-                  {photoData ? (
-                    <img src={photoData} alt="preview" className="w-full max-h-48 object-contain rounded-xl" />
+                <div onClick={() => !compressing && fileRef.current?.click()}
+                  className={`border-2 border-dashed rounded-2xl p-6 text-center transition-colors ${
+                    compressing ? 'border-blue-300 bg-blue-50 cursor-wait'
+                    : photoData  ? 'border-violet-400 cursor-pointer hover:bg-gray-50'
+                    : 'border-gray-300 cursor-pointer hover:bg-gray-50'
+                  }`}>
+                  {compressing ? (
+                    <div className="text-blue-500">
+                      <p className="text-3xl mb-2 animate-spin">⚙️</p>
+                      <p className="text-sm font-medium">Đang nén ảnh...</p>
+                    </div>
+                  ) : photoData ? (
+                    <>
+                      <img src={photoData} alt="preview" className="w-full max-h-48 object-contain rounded-xl" />
+                      {compressInfo && (
+                        <p className="text-xs text-emerald-600 mt-2 font-medium">✅ Đã nén: {compressInfo}</p>
+                      )}
+                    </>
                   ) : (
                     <div className="text-gray-400">
                       <p className="text-4xl mb-2">📷</p>
-                      <p className="text-sm">Bấm để chọn ảnh (tối đa 2MB)</p>
+                      <p className="text-sm">Bấm để chọn ảnh</p>
+                      <p className="text-xs mt-1 text-gray-300">Tự động nén về WebP · max 1280 px · ~75% chất lượng</p>
                     </div>
                   )}
                 </div>
@@ -183,11 +233,11 @@ export default function MemoryAlbums() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button onClick={submitPhoto} disabled={!photoData}
-                  className="bg-violet-600 text-white px-5 py-2.5 rounded-xl font-medium text-sm disabled:opacity-50 hover:bg-violet-700">
-                  Thêm ảnh
+                <button onClick={submitPhoto} disabled={!photoData || photoDone || compressing}
+                  className="bg-violet-600 text-white px-5 py-2.5 rounded-xl font-medium text-sm disabled:opacity-50 hover:bg-violet-700 transition-all">
+                  {compressing ? '⚙️ Đang nén...' : photoDone ? '✅ Đã thêm!' : 'Thêm ảnh'}
                 </button>
-                <button onClick={() => { setShowAddPhoto(false); setPhotoData('') }} className="text-gray-500 px-4 py-2.5 rounded-xl text-sm hover:bg-gray-100">Hủy</button>
+                <button onClick={() => { setShowAddPhoto(false); setPhotoData(''); setCompressInfo('') }} disabled={photoDone || compressing} className="text-gray-500 px-4 py-2.5 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
               </div>
             </motion.div>
           )}
@@ -275,8 +325,10 @@ export default function MemoryAlbums() {
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={submitAlbum} className="bg-violet-600 text-white px-5 py-2.5 rounded-xl font-medium text-sm hover:bg-violet-700">Tạo album</button>
-              <button onClick={() => setShowAddAlbum(false)} className="text-gray-500 px-4 py-2.5 rounded-xl text-sm hover:bg-gray-100">Hủy</button>
+              <button onClick={submitAlbum} disabled={!albumForm.title.trim() || albumDone} className="bg-violet-600 text-white px-5 py-2.5 rounded-xl font-medium text-sm hover:bg-violet-700 disabled:opacity-50 transition-all">
+                {albumDone ? '✅ Đã tạo!' : 'Tạo album'}
+              </button>
+              <button onClick={() => setShowAddAlbum(false)} disabled={albumDone} className="text-gray-500 px-4 py-2.5 rounded-xl text-sm hover:bg-gray-100 disabled:opacity-40">Hủy</button>
             </div>
           </motion.div>
         )}
