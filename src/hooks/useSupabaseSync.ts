@@ -6,7 +6,6 @@ import {
   isQueued,
   getQueuedDeletes,
   confirmDeleted,
-  clearDeleteQueue,
 } from '../utils/deletionQueue'
 
 // ── Module-level state ─────────────────────────────────────────────────────────
@@ -641,9 +640,12 @@ export function useSupabaseSync() {
     if (!isSupabaseConfigured || !supabase || !familyCode || !isAuthenticated) return
     const client = supabase
 
-    // Clear stale state from any previous partition / session
+    // Clear in-memory sync state for a fresh session. The deletion queue is
+    // intentionally NOT cleared here — it's persisted to localStorage and must
+    // survive F5/re-auth so that pending deletions still get pushed to the
+    // server after a network failure. Clearing it caused F5 to lose unconfirmed
+    // deletions and resurrect rows from the server on the next load.
     rowTs.clear()
-    clearDeleteQueue()
     lastPushTime = 0
     pendingLoad  = false
     retriesRef.current = 0
