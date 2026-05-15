@@ -401,7 +401,23 @@ export const useStore = create<Store>()(
           get().notify(data.assignedTo, 'quest', `⚔️ ${data.title}`, id, `Nhiệm vụ mới · 🪙 ${data.tokens} xu`)
         }
       },
-      updateQuest: (id, data) => set((s) => ({ quests: s.quests.map((q) => q.id === id ? { ...q, ...data } : q) })),
+      updateQuest: (id, data) => {
+        const before = get().quests.find((q) => q.id === id)
+        set((s) => ({ quests: s.quests.map((q) => q.id === id ? { ...q, ...data } : q) }))
+        // Notify any newly added assignees so a parent can hand off a quest
+        // mid-flight without the new kid missing the alert. We skip people
+        // who were already on the quest.
+        if (before && data.assignedTo) {
+          const oldSet = new Set(before.assignedTo)
+          const added  = data.assignedTo.filter((m) => !oldSet.has(m))
+          if (added.length > 0) {
+            const after = get().quests.find((q) => q.id === id)
+            if (after) {
+              get().notify(added, 'quest', `⚔️ ${after.title}`, id, `Bạn được giao nhiệm vụ · 🪙 ${after.tokens} xu`)
+            }
+          }
+        }
+      },
       completeQuest: (id, memberId) => set((s) => ({
         quests: s.quests.map((q) => q.id === id ? { ...q, status: 'pending', completedBy: memberId, completedAt: Date.now() } : q),
       })),
@@ -548,9 +564,20 @@ export const useStore = create<Store>()(
           get().notify(data.assignedTo, 'todo', `📋 ${data.title}`, id, data.recurring ? 'Việc lặp lại mỗi ngày' : 'Việc một lần')
         }
       },
-      updateTodo: (id, data) => set((s) => ({
-        todos: s.todos.map((t) => t.id === id ? { ...t, ...data } : t),
-      })),
+      updateTodo: (id, data) => {
+        const before = get().todos.find((t) => t.id === id)
+        set((s) => ({ todos: s.todos.map((t) => t.id === id ? { ...t, ...data } : t) }))
+        if (before && data.assignedTo) {
+          const oldSet = new Set(before.assignedTo)
+          const added  = data.assignedTo.filter((m) => !oldSet.has(m))
+          if (added.length > 0) {
+            const after = get().todos.find((t) => t.id === id)
+            if (after) {
+              get().notify(added, 'todo', `📋 ${after.title}`, id, after.recurring ? 'Việc lặp lại mỗi ngày' : 'Việc một lần')
+            }
+          }
+        }
+      },
       removeTodo: (id) => { queueDelete('todos', id); set((s) => ({ todos: s.todos.filter((t) => t.id !== id) })) },
       toggleTodo: (id, dateStr) => set((s) => ({
         todos: s.todos.map((t) => {

@@ -54,7 +54,11 @@ function getEventsForDay(
   // year's solar date so they show up on the right calendar cell every
   // year without families having to enter the date manually.
   anniversaries.forEach((ann) => {
+    // Guard against bad data: day must be 1–30, month 1–12, year sensible.
     if (!ann.lunarDay || !ann.lunarMonth) return
+    if (ann.lunarDay < 1 || ann.lunarDay > 30) return
+    if (ann.lunarMonth < 1 || ann.lunarMonth > 12) return
+    if (year < 1900 || year > 2200) return
     try {
       const s = lunarToSolar(ann.lunarDay, ann.lunarMonth, year, false)
       if (s.month === month + 1 && s.day === day) {

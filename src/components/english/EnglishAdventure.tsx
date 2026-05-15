@@ -330,7 +330,7 @@ export default function EnglishAdventure() {
         <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
           <h3 className="font-bold text-gray-800 dark:text-white mb-4 text-center">🎯 Ghép từ với nghĩa đúng!</h3>
           {themeWords.length >= 4
-            ? <MiniQuiz words={themeWords} memberId={currentMemberId || ''} />
+            ? <MiniQuiz key={englishTheme} words={themeWords} memberId={currentMemberId || ''} />
             : (
               <div className="text-center py-8 text-gray-400">
                 <p className="text-3xl mb-2">🎯</p>

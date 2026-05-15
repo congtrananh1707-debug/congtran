@@ -773,7 +773,10 @@ export function useSupabaseSync() {
             // If the incoming event's updated_at equals our last push time,
             // this is our own echo — skip it to avoid unnecessary reload.
             const evUpdatedAt = payload?.new?.updated_at
-            if (evUpdatedAt && evUpdatedAt === lastPushTime) return
+            // Tolerate up to 1s of round-trip jitter — Postgres truncates
+            // sub-ms precision on some columns and Supabase replays the
+            // event slightly off our local Date.now().
+            if (evUpdatedAt && Math.abs(evUpdatedAt - lastPushTime) < 1000) return
 
             if (!isOnline || loadInFlight) {
               // FIX #2: queue it — loadFromSupabase finally{} will handle it

@@ -1,8 +1,23 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../../store/useStore'
 import { isParentRole } from '../../types'
 import { todayStr } from '../../utils/helpers'
+
+// Re-evaluate today's date every minute so a tab left open across midnight
+// rolls over to the new day without a manual reload (otherwise a recurring
+// todo done last night stays ticked at 00:01).
+function useToday(): string {
+  const [today, setToday] = useState(todayStr)
+  useEffect(() => {
+    const id = setInterval(() => {
+      const fresh = todayStr()
+      setToday((cur) => (cur === fresh ? cur : fresh))
+    }, 60_000)
+    return () => clearInterval(id)
+  }, [])
+  return today
+}
 
 const QUICK_EMOJI = ['✅', '🦷', '📚', '🧹', '🚿', '🥗', '💪', '😴', '🎵', '🏃']
 
@@ -17,7 +32,7 @@ export default function DailyTodos() {
 
   const me = members.find((m) => m.id === currentMemberId)
   const isParent = me ? isParentRole(me.role) : false
-  const today = todayStr()
+  const today = useToday()
 
   const [showAdd, setShowAdd] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)

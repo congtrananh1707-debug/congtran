@@ -318,7 +318,8 @@ function HangmanGame({ memberId, onExit }: { memberId: string; onExit: () => voi
         })}
       </div>
 
-      {/* Keyboard */}
+      {/* Keyboard — flex-based so each row sizes itself to its letter count
+          and on narrow phones the keys shrink instead of overflowing */}
       <div className="space-y-1.5">
         {rows.map((row) => (
           <div key={row} className="flex justify-center gap-1">
@@ -328,7 +329,7 @@ function HangmanGame({ memberId, onExit }: { memberId: string; onExit: () => voi
               const isRight = used && letters.includes(l)
               return (
                 <button key={l} onClick={() => guess(l)} disabled={used || done !== 'idle'}
-                  className={`w-8 h-10 sm:w-9 rounded-lg font-bold text-sm uppercase transition-colors ${
+                  className={`flex-1 min-w-0 max-w-[2.25rem] h-10 rounded-lg font-bold text-sm uppercase transition-colors ${
                     isWrong ? 'bg-red-200 text-red-700' :
                     isRight ? 'bg-emerald-200 text-emerald-700' :
                     'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-violet-100 disabled:opacity-40'
