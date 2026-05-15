@@ -488,7 +488,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'family-hub-v1',
-      version: 5,
+      version: 6,
       // Strip heavy base64 fields before writing to localStorage. iOS Safari
       // caps localStorage at ~5MB; photo dataUrls, avatars, and ancestor
       // photos easily blow that. Everything stripped here lives on Supabase
@@ -535,6 +535,20 @@ export const useStore = create<Store>()(
         // dataset on every load. Replace those with VOCAB_DATA while
         // preserving any word the user added themselves (nanoid IDs).
         if (version < 5) {
+          const prevVocab: any[] = persisted.vocabWords ?? []
+          const isLegacySeed = (id: string) => /^v\d+$/.test(id)
+          const isNewSeed = (id: string) => id.startsWith('v-')
+          const userAdded = prevVocab.filter(
+            (v) => !isLegacySeed(v.id) && !isNewSeed(v.id)
+          )
+          persisted = { ...persisted, vocabWords: [...VOCAB_DATA, ...userAdded] }
+        }
+        // v6: vocab is no longer sync'd via Supabase. Devices that hit the
+        // emoji-column upsert failure + orphan-cleanup wipe + freshLoad
+        // pruner cascade ended up with vocabWords = []. Re-seed from
+        // VOCAB_DATA, preserving any nanoid-ID user additions if the array
+        // still holds them.
+        if (version < 6) {
           const prevVocab: any[] = persisted.vocabWords ?? []
           const isLegacySeed = (id: string) => /^v\d+$/.test(id)
           const isNewSeed = (id: string) => id.startsWith('v-')

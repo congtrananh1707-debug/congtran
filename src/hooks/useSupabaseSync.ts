@@ -195,20 +195,17 @@ const TABLE_MAP = [
       })),
     }),
   },
-  {
-    table: 'vocab_words',
-    getRows: (s: SyncState) => s.vocabWords.map((v) => ({
-      id: v.id, word: v.word, translation: v.translation, example: v.example,
-      theme: v.theme, mastered_by: v.masteredBy, emoji: v.emoji ?? null,
-    })),
-    applyRows: (rows: any[]) => ({
-      vocabWords: rows.map((r) => ({
-        id: r.id, word: r.word, translation: r.translation ?? '', example: r.example ?? '',
-        theme: r.theme ?? 'kitchen', masteredBy: r.mastered_by ?? [],
-        emoji: r.emoji ?? undefined,
-      })),
-    }),
-  },
+  // vocab_words intentionally NOT synced. The 1200-row VOCAB_DATA dataset
+  // is bundled with the JS, so every device already has identical content
+  // from import. Syncing this through Supabase required a column-additive
+  // schema migration on every deployed project AND caused a real bug:
+  // an upsert that failed on the missing emoji column left the server
+  // empty after orphan cleanup, which the freshLoad+serverHasHistory
+  // pruner then propagated to every device, wiping vocab everywhere.
+  // Trade-off: user-added words and mastery progress are now per-device.
+  // For a learning module this is acceptable; for cross-device features
+  // that actually need shared state (members, quests, heritage…) the
+  // sync path remains unchanged.
   {
     table: 'ancestors',
     getRows: (s: SyncState) => s.ancestors.map((a) => ({
@@ -220,6 +217,7 @@ const TABLE_MAP = [
       parent_ids: a.parentIds, spouse_id: a.spouseId ?? null,
       phone: a.phone ?? null, address: a.address ?? null,
       hometown: a.hometown ?? null, occupation: a.occupation ?? null,
+      manual_x: a.manualX ?? null, manual_y: a.manualY ?? null,
     })),
     applyRows: (rows: any[]) => ({
       ancestors: rows.map((r) => ({
@@ -231,6 +229,7 @@ const TABLE_MAP = [
         parentIds: r.parent_ids ?? [], spouseId: r.spouse_id ?? undefined,
         phone: r.phone ?? undefined, address: r.address ?? undefined,
         hometown: r.hometown ?? undefined, occupation: r.occupation ?? undefined,
+        manualX: r.manual_x ?? undefined, manualY: r.manual_y ?? undefined,
       })),
     }),
   },

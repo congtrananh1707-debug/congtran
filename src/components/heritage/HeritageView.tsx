@@ -92,14 +92,30 @@ function buildLayout(ancestors: Ancestor[]): LayoutNode[] {
     const totalW = group.length * NODE_W + (group.length - 1) * H_GAP
     const startX = -totalW / 2 + NODE_W / 2
     group.forEach((a, i) => {
-      nodes.push({ ancestor: a, x: startX + i * (NODE_W + H_GAP), y: lv * (NODE_H + V_GAP), level: lv })
+      // Manual coordinates win over the auto-computed layout, so families
+      // can drag people into the right place when the breadth-first guess
+      // gets it wrong.
+      const autoX = startX + i * (NODE_W + H_GAP)
+      const autoY = lv * (NODE_H + V_GAP)
+      const x = a.manualX !== undefined ? a.manualX : autoX
+      const y = a.manualY !== undefined ? a.manualY : autoY
+      nodes.push({ ancestor: a, x, y, level: lv })
     })
   }
 
   return nodes
 }
 
-function FamilyTreeSVG({ ancestors, onNodeClick }: { ancestors: Ancestor[]; onNodeClick: (a: Ancestor) => void }) {
+function FamilyTreeSVG({
+  ancestors,
+  onNodeClick,
+  isParent,
+}: {
+  ancestors: Ancestor[]
+  onNodeClick: (a: Ancestor) => void
+  isParent: boolean
+}) {
+  const updateAncestor = useStore((s) => s.updateAncestor)
   const containerRef = useRef<HTMLDivElement>(null)
   const [scale, setScale]         = useState(1)
   const [translate, setTranslate] = useState({ x: 0, y: 0 })
@@ -108,6 +124,12 @@ function FamilyTreeSVG({ ancestors, onNodeClick }: { ancestors: Ancestor[]; onNo
   const lastPoint = useRef({ x: 0, y: 0 })
   const pinchDist = useRef<number | null>(null)
   const touchPt   = useRef<{ x: number; y: number } | null>(null)
+
+  // Reposition / edit mode — when ON, dragging a node moves the node
+  // (and persists manualX/manualY) instead of panning the canvas.
+  const [repositionMode, setRepositionMode] = useState(false)
+  const [dragNode, setDragNode] = useState<{ id: string; x: number; y: number } | null>(null)
+  const dragNodeRef = useRef<{ id: string; startX: number; startY: number; pointerStartX: number; pointerStartY: number } | null>(null)
 
   const nodes = useMemo(() => buildLayout(ancestors), [ancestors])
 
@@ -231,11 +253,13 @@ function FamilyTreeSVG({ ancestors, onNodeClick }: { ancestors: Ancestor[]; onNo
   }
 
   const onMouseDown = (e: React.MouseEvent) => {
+    if (dragNodeRef.current) return  // node drag in progress — skip canvas pan
     dragging.current  = true
     didPan.current    = false
     lastPoint.current = { x: e.clientX, y: e.clientY }
   }
   const onMouseMove = (e: React.MouseEvent) => {
+    if (dragNodeRef.current) return
     if (!dragging.current) return
     const dx = e.clientX - lastPoint.current.x
     const dy = e.clientY - lastPoint.current.y
@@ -245,21 +269,91 @@ function FamilyTreeSVG({ ancestors, onNodeClick }: { ancestors: Ancestor[]; onNo
   }
   const stopDrag = () => { dragging.current = false }
 
+  // ── Node drag handlers (only active in repositionMode) ─────────────────────
+  // Wired to window so the drag tracks even when the pointer leaves the node.
+  useEffect(() => {
+    const moveCursor = (clientX: number, clientY: number) => {
+      const d = dragNodeRef.current
+      if (!d) return
+      const dx = (clientX - d.pointerStartX) / scale
+      const dy = (clientY - d.pointerStartY) / scale
+      setDragNode({ id: d.id, x: d.startX + dx, y: d.startY + dy })
+    }
+    const onMove = (e: MouseEvent) => moveCursor(e.clientX, e.clientY)
+    const onTouchMove = (e: TouchEvent) => {
+      if (!dragNodeRef.current || e.touches.length !== 1) return
+      e.preventDefault()
+      moveCursor(e.touches[0].clientX, e.touches[0].clientY)
+    }
+    const finish = () => {
+      const d = dragNodeRef.current
+      if (!d) return
+      // Capture the final logical position from state via a callback so we
+      // don't depend on a stale `dragNode` closure.
+      setDragNode((cur) => {
+        if (cur && cur.id === d.id) {
+          updateAncestor(d.id, { manualX: cur.x, manualY: cur.y })
+        }
+        return null
+      })
+      dragNodeRef.current = null
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', finish)
+    window.addEventListener('touchmove', onTouchMove, { passive: false })
+    window.addEventListener('touchend', finish)
+    window.addEventListener('touchcancel', finish)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', finish)
+      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('touchend', finish)
+      window.removeEventListener('touchcancel', finish)
+    }
+  }, [scale, updateAncestor])
+
+  const startNodeDrag = (
+    nodeId: string,
+    currentX: number,
+    currentY: number,
+    pointerX: number,
+    pointerY: number,
+  ) => {
+    if (!repositionMode || !isParent) return
+    dragNodeRef.current = {
+      id: nodeId,
+      startX: currentX,
+      startY: currentY,
+      pointerStartX: pointerX,
+      pointerStartY: pointerY,
+    }
+    setDragNode({ id: nodeId, x: currentX, y: currentY })
+  }
+
   if (nodes.length === 0) return null
 
   // ── Build SVG content ──────────────────────────────────────────────────────
+  // Apply the live drag override so lines and the dragged node visually
+  // follow the pointer before commit. `effectivePos` returns the layout
+  // position for a node, with the in-flight drag taking precedence.
+  const effectivePos = (n: LayoutNode): { x: number; y: number } => {
+    if (dragNode && dragNode.id === n.ancestor.id) return { x: dragNode.x, y: dragNode.y }
+    return { x: n.x, y: n.y }
+  }
   const nodeById: Record<string, LayoutNode> = {}
   nodes.forEach((n) => { nodeById[n.ancestor.id] = n })
 
   const lines: JSX.Element[] = []
   nodes.forEach((n) => {
+    const np = effectivePos(n)
     n.ancestor.parentIds.forEach((pid) => {
       const parent = nodeById[pid]
       if (!parent) return
-      const x1 = parent.x - minX + NODE_W / 2
-      const y1 = parent.y - minY + NODE_H
-      const x2 = n.x - minX + NODE_W / 2
-      const y2 = n.y - minY
+      const pp = effectivePos(parent)
+      const x1 = pp.x - minX + NODE_W / 2
+      const y1 = pp.y - minY + NODE_H
+      const x2 = np.x - minX + NODE_W / 2
+      const y2 = np.y - minY
       const midY = (y1 + y2) / 2
       lines.push(
         <path key={`${pid}-${n.ancestor.id}`}
@@ -275,12 +369,14 @@ function FamilyTreeSVG({ ancestors, onNodeClick }: { ancestors: Ancestor[]; onNo
     if (!sid || drawnSpouses.has(`${n.ancestor.id}-${sid}`) || drawnSpouses.has(`${sid}-${n.ancestor.id}`)) return
     const spouse = nodeById[sid]
     if (!spouse) return
-    const leftNode  = n.x <= spouse.x ? n      : spouse
-    const rightNode = n.x <= spouse.x ? spouse : n
-    const x1 = leftNode.x  - minX + NODE_W
-    const y1 = leftNode.y  - minY + NODE_H / 2
-    const x2 = rightNode.x - minX
-    const y2 = rightNode.y - minY + NODE_H / 2
+    const np = effectivePos(n)
+    const sp = effectivePos(spouse)
+    const leftNode  = np.x <= sp.x ? { p: np, ref: n } : { p: sp, ref: spouse }
+    const rightNode = np.x <= sp.x ? { p: sp, ref: spouse } : { p: np, ref: n }
+    const x1 = leftNode.p.x  - minX + NODE_W
+    const y1 = leftNode.p.y  - minY + NODE_H / 2
+    const x2 = rightNode.p.x - minX
+    const y2 = rightNode.p.y - minY + NODE_H / 2
     const mx = (x1 + x2) / 2
     const my = (y1 + y2) / 2
     lines.push(
@@ -297,11 +393,25 @@ function FamilyTreeSVG({ ancestors, onNodeClick }: { ancestors: Ancestor[]; onNo
   return (
     <div className="flex flex-col gap-2">
       {/* ── Controls ── */}
-      <div className="flex items-center gap-2 justify-between">
+      <div className="flex items-center gap-2 justify-between flex-wrap">
         <span className="text-xs text-amber-500">
-          {ancestors.length} người · cuộn chuột để zoom · kéo để di chuyển
+          {ancestors.length} người ·{' '}
+          {repositionMode ? 'kéo từng người để xếp lại vị trí' : 'cuộn chuột để zoom · kéo để di chuyển'}
         </span>
         <div className="flex items-center gap-1.5">
+          {isParent && (
+            <button
+              onClick={() => setRepositionMode((v) => !v)}
+              title="Bật/tắt chế độ sắp xếp vị trí"
+              className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                repositionMode
+                  ? 'bg-amber-400 text-amber-950'
+                  : 'bg-amber-800/60 hover:bg-amber-700/60 text-amber-200'
+              }`}
+            >
+              {repositionMode ? '✓ Đang sắp xếp' : '✋ Sắp xếp'}
+            </button>
+          )}
           <button
             onClick={fitToScreen}
             title="Fit to screen"
@@ -351,19 +461,42 @@ function FamilyTreeSVG({ ancestors, onNodeClick }: { ancestors: Ancestor[]; onNo
         >
           {lines}
           {nodes.map((n) => {
-            const x = n.x - minX
-            const y = n.y - minY
+            const ep = effectivePos(n)
+            const x = ep.x - minX
+            const y = ep.y - minY
             const isMale = n.ancestor.gender === 'male'
+            const isBeingDragged = dragNode?.id === n.ancestor.id
             const name   = n.ancestor.name
             // Break name into up to 2 lines of ~14 chars each
             const line1  = name.length <= 14 ? name : name.slice(0, 14)
             const line2  = name.length > 14  ? (name.length > 28 ? name.slice(14, 27) + '…' : name.slice(14)) : ''
+            const handleMouseDown = (e: React.MouseEvent) => {
+              if (!repositionMode || !isParent) return
+              e.stopPropagation()
+              startNodeDrag(n.ancestor.id, ep.x, ep.y, e.clientX, e.clientY)
+            }
+            const handleTouchStart = (e: React.TouchEvent) => {
+              if (!repositionMode || !isParent) return
+              if (e.touches.length !== 1) return
+              e.stopPropagation()
+              startNodeDrag(n.ancestor.id, ep.x, ep.y, e.touches[0].clientX, e.touches[0].clientY)
+            }
+            const handleClick = () => {
+              if (didPan.current) return
+              if (repositionMode) return  // suppress detail popup during repositioning
+              onNodeClick(n.ancestor)
+            }
             return (
               <g
                 key={n.ancestor.id}
                 transform={`translate(${x},${y})`}
-                onClick={() => { if (!didPan.current) onNodeClick(n.ancestor) }}
-                style={{ cursor: 'pointer' }}
+                onClick={handleClick}
+                onMouseDown={handleMouseDown}
+                onTouchStart={handleTouchStart}
+                style={{
+                  cursor: repositionMode && isParent ? (isBeingDragged ? 'grabbing' : 'grab') : 'pointer',
+                  opacity: isBeingDragged ? 0.85 : 1,
+                }}
                 className="group"
               >
                 {/* Shadow */}
@@ -900,10 +1033,12 @@ function AncestorPopup({
   onEdit: () => void
 }) {
   const removeAncestor   = useStore((s) => s.removeAncestor)
+  const updateAncestor   = useStore((s) => s.updateAncestor)
   const currentMemberId  = useStore((s) => s.currentMemberId)
   const members          = useStore((s) => s.members)
   const currentMember    = members.find((m) => m.id === currentMemberId)
   const isParent         = currentMember ? isParentRole(currentMember.role) : false
+  const hasManualPos     = ancestor.manualX !== undefined || ancestor.manualY !== undefined
 
   const spouseName = ancestor.spouseId ? ancestors.find((a) => a.id === ancestor.spouseId)?.name : undefined
   const parentNames = ancestor.parentIds.map((pid) => ancestors.find((a) => a.id === pid)?.name).filter(Boolean)
@@ -977,6 +1112,15 @@ function AncestorPopup({
             <p className="text-xs text-amber-600 font-medium uppercase tracking-wide mb-1">Tiểu sử</p>
             <p className="text-sm text-amber-800 leading-relaxed whitespace-pre-wrap">{ancestor.biography}</p>
           </div>
+        )}
+
+        {isParent && hasManualPos && (
+          <button
+            onClick={() => updateAncestor(ancestor.id, { manualX: undefined, manualY: undefined })}
+            className="w-full text-xs text-amber-600 hover:text-amber-800 underline mb-3"
+          >
+            ↺ Khôi phục vị trí tự động trên cây
+          </button>
         )}
 
         <div className="flex gap-2">
@@ -1060,7 +1204,7 @@ export default function HeritageView() {
                 <p className="text-amber-400 text-sm mt-1">Nhấn "+ Thêm tổ tiên" để bắt đầu vẽ cây nhà mình</p>
               </div>
             ) : (
-              <FamilyTreeSVG ancestors={ancestors} onNodeClick={setSelectedAncestor} />
+              <FamilyTreeSVG ancestors={ancestors} onNodeClick={setSelectedAncestor} isParent={isParent} />
             )}
             <p className="text-xs text-amber-500 text-center mt-4">
               Nhấn vào nút để xem / sửa · ╌╌╌ cha-con · ─❤️─ vợ/chồng

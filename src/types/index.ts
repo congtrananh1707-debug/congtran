@@ -212,6 +212,10 @@ export type Ancestor = {
   address?: string          // current residence
   hometown?: string         // birthplace / quê quán
   occupation?: string       // nghề nghiệp
+  // Manual node placement on the family-tree canvas. When set, the layout
+  // engine uses these coordinates verbatim instead of auto-positioning.
+  manualX?: number
+  manualY?: number
 }
 
 export type Anniversary = {

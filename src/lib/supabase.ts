@@ -266,6 +266,8 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 --   ALTER TABLE ancestors ADD COLUMN IF NOT EXISTS address TEXT;
 --   ALTER TABLE ancestors ADD COLUMN IF NOT EXISTS hometown TEXT;
 --   ALTER TABLE ancestors ADD COLUMN IF NOT EXISTS occupation TEXT;
+--   ALTER TABLE ancestors ADD COLUMN IF NOT EXISTS manual_x FLOAT;
+--   ALTER TABLE ancestors ADD COLUMN IF NOT EXISTS manual_y FLOAT;
 CREATE TABLE IF NOT EXISTS ancestors (
   id TEXT NOT NULL,
   family_code TEXT NOT NULL,
@@ -286,6 +288,8 @@ CREATE TABLE IF NOT EXISTS ancestors (
   address TEXT,
   hometown TEXT,
   occupation TEXT,
+  manual_x FLOAT,
+  manual_y FLOAT,
   updated_at BIGINT DEFAULT 0,
   PRIMARY KEY (id, family_code)
 );
