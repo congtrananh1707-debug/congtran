@@ -19,6 +19,8 @@ import EnglishAdventure from './components/english/EnglishAdventure'
 import FamilyCalendar from './components/calendar/FamilyCalendar'
 import SilentHeroes from './components/heroes/SilentHeroes'
 import HeritageView from './components/heritage/HeritageView'
+import DailyTodos from './components/todos/DailyTodos'
+import GamesHub from './components/games/GamesHub'
 import ErrorBoundary from './components/ui/ErrorBoundary'
 import type { AppView } from './types'
 
@@ -53,6 +55,8 @@ export default function App() {
       case 'calendar':  return <FamilyCalendar />
       case 'heroes':    return <SilentHeroes />
       case 'heritage':  return <HeritageView />
+      case 'todos':     return <DailyTodos />
+      case 'games':     return <GamesHub />
       case 'settings':  return <Settings />
       default:          return <Dashboard setView={navigate} setProfileId={setProfileId} />
     }

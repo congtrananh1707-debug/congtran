@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
 import { useStore } from '../store/useStore'
 import { useSyncStore } from '../store/useSyncStore'
+import type { Ancestor } from '../types'
 import {
   isQueued,
   getQueuedDeletes,
@@ -217,21 +218,39 @@ const TABLE_MAP = [
       parent_ids: a.parentIds, spouse_id: a.spouseId ?? null,
       phone: a.phone ?? null, address: a.address ?? null,
       hometown: a.hometown ?? null, occupation: a.occupation ?? null,
-      manual_x: a.manualX ?? null, manual_y: a.manualY ?? null,
+      // manual_x / manual_y are intentionally NOT pushed. They are local
+      // layout preferences that depend on whichever device the user
+      // arranged the tree on (and a missing column would tank the whole
+      // ancestor push). They're persisted via zustand to localStorage so
+      // they survive F5 on the SAME device — the load applyRows below
+      // preserves whatever local value is already in state instead of
+      // letting the server's null wipe it.
     })),
-    applyRows: (rows: any[]) => ({
-      ancestors: rows.map((r) => ({
-        id: r.id, name: r.name, gender: r.gender, relationship: r.relationship ?? '',
-        birthYear: r.birth_year ?? undefined, deathYear: r.death_year ?? undefined,
-        solarBirthDate: r.solar_birth_date ?? undefined, solarDeathDate: r.solar_death_date ?? undefined,
-        lunarDeathDay: r.lunar_death_day ?? undefined, lunarDeathMonth: r.lunar_death_month ?? undefined,
-        biography: r.biography ?? undefined, photoUrl: r.photo_url ?? undefined,
-        parentIds: r.parent_ids ?? [], spouseId: r.spouse_id ?? undefined,
-        phone: r.phone ?? undefined, address: r.address ?? undefined,
-        hometown: r.hometown ?? undefined, occupation: r.occupation ?? undefined,
-        manualX: r.manual_x ?? undefined, manualY: r.manual_y ?? undefined,
-      })),
-    }),
+    applyRows: (rows: any[]) => {
+      // Read the current local manual coords once so we can re-stamp them
+      // onto the freshly-loaded rows. Without this the server (which never
+      // sees these fields) returns undefined for manualX/manualY, which
+      // would otherwise reset every drag on every sync.
+      const localById = new Map<string, Ancestor>()
+      useStore.getState().ancestors.forEach((a) => localById.set(a.id, a))
+      return {
+        ancestors: rows.map((r) => {
+          const local = localById.get(r.id)
+          return {
+            id: r.id, name: r.name, gender: r.gender, relationship: r.relationship ?? '',
+            birthYear: r.birth_year ?? undefined, deathYear: r.death_year ?? undefined,
+            solarBirthDate: r.solar_birth_date ?? undefined, solarDeathDate: r.solar_death_date ?? undefined,
+            lunarDeathDay: r.lunar_death_day ?? undefined, lunarDeathMonth: r.lunar_death_month ?? undefined,
+            biography: r.biography ?? undefined, photoUrl: r.photo_url ?? undefined,
+            parentIds: r.parent_ids ?? [], spouseId: r.spouse_id ?? undefined,
+            phone: r.phone ?? undefined, address: r.address ?? undefined,
+            hometown: r.hometown ?? undefined, occupation: r.occupation ?? undefined,
+            manualX: local?.manualX,
+            manualY: local?.manualY,
+          }
+        }),
+      }
+    },
   },
   {
     table: 'anniversaries',
@@ -243,6 +262,23 @@ const TABLE_MAP = [
       anniversaries: rows.map((r) => ({
         id: r.id, name: r.name, ancestorId: r.ancestor_id ?? undefined, solarDate: r.solar_date ?? undefined,
         lunarDay: r.lunar_day, lunarMonth: r.lunar_month, notes: r.notes ?? undefined,
+      })),
+    }),
+  },
+  {
+    table: 'todos',
+    getRows: (s: SyncState) => s.todos.map((t) => ({
+      id: t.id, title: t.title, emoji: t.emoji,
+      assigned_to: t.assignedTo, recurring: t.recurring,
+      done_dates: t.doneDates, created_by: t.createdBy,
+      created_at: t.createdAt,
+    })),
+    applyRows: (rows: any[]) => ({
+      todos: rows.map((r) => ({
+        id: r.id, title: r.title, emoji: r.emoji ?? '✅',
+        assignedTo: r.assigned_to ?? [], recurring: r.recurring ?? true,
+        doneDates: r.done_dates ?? [], createdBy: r.created_by ?? '',
+        createdAt: r.created_at ?? Date.now(),
       })),
     }),
   },

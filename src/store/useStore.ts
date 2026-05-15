@@ -4,7 +4,7 @@ import type {
   Member, HealthRecord, SkillNode, Quest, Reward, MailMessage,
   GratitudeNote, WheelItem, QuizQuestion, FamilyQuest, Album, Photo,
   MoodTag, MailReaction, QuestStatus, SilentHero, VocabWord, CalendarEvent,
-  Ancestor, Anniversary,
+  Ancestor, Anniversary, DailyTodo,
 } from '../types'
 import { nanoid, todayStr } from '../utils/helpers'
 import { queueDelete } from '../utils/deletionQueue'
@@ -166,6 +166,9 @@ type Store = {
   ancestors: Ancestor[]
   anniversaries: Anniversary[]
 
+  // Daily todos
+  todos: DailyTodo[]
+
   // Auth actions
   verifyPin: (input: string) => boolean
   logout: () => void
@@ -273,6 +276,12 @@ type Store = {
   addAnniversary: (ann: Omit<Anniversary, 'id'>) => void
   updateAnniversary: (id: string, data: Partial<Anniversary>) => void
   removeAnniversary: (id: string) => void
+
+  // Daily todos
+  addTodo: (data: Omit<DailyTodo, 'id' | 'doneDates' | 'createdAt'>) => void
+  updateTodo: (id: string, data: Partial<DailyTodo>) => void
+  removeTodo: (id: string) => void
+  toggleTodo: (id: string, dateStr: string) => void
 }
 
 // ─── Store implementation ─────────────────────────────────────────────────────
@@ -310,6 +319,7 @@ export const useStore = create<Store>()(
       calendarEvents: [],
       ancestors:      SEED_ANCESTORS,
       anniversaries:  SEED_ANNIVERSARIES,
+      todos:          [],
 
       // Auth
       verifyPin: (input) => {
@@ -485,6 +495,22 @@ export const useStore = create<Store>()(
       addAnniversary: (ann) => set((s) => ({ anniversaries: [...s.anniversaries, { ...ann, id: nanoid() }] })),
       updateAnniversary: (id, data) => set((s) => ({ anniversaries: s.anniversaries.map((a) => a.id === id ? { ...a, ...data } : a) })),
       removeAnniversary: (id) => { queueDelete('anniversaries', id); set((s) => ({ anniversaries: s.anniversaries.filter((a) => a.id !== id) })) },
+
+      // Daily todos
+      addTodo: (data) => set((s) => ({
+        todos: [...s.todos, { ...data, id: nanoid(), doneDates: [], createdAt: Date.now() }],
+      })),
+      updateTodo: (id, data) => set((s) => ({
+        todos: s.todos.map((t) => t.id === id ? { ...t, ...data } : t),
+      })),
+      removeTodo: (id) => { queueDelete('todos', id); set((s) => ({ todos: s.todos.filter((t) => t.id !== id) })) },
+      toggleTodo: (id, dateStr) => set((s) => ({
+        todos: s.todos.map((t) => {
+          if (t.id !== id) return t
+          const has = t.doneDates.includes(dateStr)
+          return { ...t, doneDates: has ? t.doneDates.filter((d) => d !== dateStr) : [...t.doneDates, dateStr] }
+        }),
+      })),
     }),
     {
       name: 'family-hub-v1',

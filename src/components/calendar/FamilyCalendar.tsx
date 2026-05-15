@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../../store/useStore'
+import { lunarToSolar } from '../../utils/lunar'
 
 const WEEKDAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
 const MONTH_NAMES = ['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Tháng 6',
@@ -17,6 +18,7 @@ function getEventsForDay(
   members: ReturnType<typeof useStore.getState>['members'],
   quests: ReturnType<typeof useStore.getState>['quests'],
   calendarEvents: ReturnType<typeof useStore.getState>['calendarEvents'],
+  anniversaries: ReturnType<typeof useStore.getState>['anniversaries'],
 ): EventItem[] {
   const mm = String(month + 1).padStart(2, '0')
   const dd = String(day).padStart(2, '0')
@@ -48,6 +50,19 @@ function getEventsForDay(
     }
   })
 
+  // Death anniversaries — auto-converted from lunar day/month to this
+  // year's solar date so they show up on the right calendar cell every
+  // year without families having to enter the date manually.
+  anniversaries.forEach((ann) => {
+    if (!ann.lunarDay || !ann.lunarMonth) return
+    try {
+      const s = lunarToSolar(ann.lunarDay, ann.lunarMonth, year, false)
+      if (s.month === month + 1 && s.day === day) {
+        events.push({ label: `🕯️ ${ann.name}`, color: 'bg-amber-700', emoji: '🕯️' })
+      }
+    } catch { /* skip invalid lunar date */ }
+  })
+
   return events
 }
 
@@ -55,6 +70,7 @@ export default function FamilyCalendar() {
   const members        = useStore((s) => s.members)
   const quests         = useStore((s) => s.quests)
   const calendarEvents = useStore((s) => s.calendarEvents)
+  const anniversaries  = useStore((s) => s.anniversaries)
   const addCalendarEvent    = useStore((s) => s.addCalendarEvent)
   const updateCalendarEvent = useStore((s) => s.updateCalendarEvent)
   const removeCalendarEvent = useStore((s) => s.removeCalendarEvent)
@@ -86,13 +102,13 @@ export default function FamilyCalendar() {
   while (cells.length % 7 !== 0) cells.push(null)
 
   const selectedEvents = selectedDay
-    ? getEventsForDay(year, month, selectedDay, members, quests, calendarEvents)
+    ? getEventsForDay(year, month, selectedDay, members, quests, calendarEvents, anniversaries)
     : []
 
   // All events this month for list view
   const monthEvents: { day: number; items: EventItem[] }[] = []
   for (let d = 1; d <= daysInMonth; d++) {
-    const items = getEventsForDay(year, month, d, members, quests, calendarEvents)
+    const items = getEventsForDay(year, month, d, members, quests, calendarEvents, anniversaries)
     if (items.length > 0) monthEvents.push({ day: d, items })
   }
 
@@ -203,7 +219,7 @@ export default function FamilyCalendar() {
             if (!day) return <div key={`empty-${i}`} className="h-12 border-b border-r border-gray-50 dark:border-gray-700/50" />
             const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
             const isSelected = day === selectedDay
-            const events = getEventsForDay(year, month, day, members, quests, calendarEvents)
+            const events = getEventsForDay(year, month, day, members, quests, calendarEvents, anniversaries)
             return (
               <button key={day} onClick={() => setSelectedDay(day === selectedDay ? null : day)}
                 className={`h-12 flex flex-col items-center justify-center border-b border-r border-gray-50 dark:border-gray-700/50 text-sm transition-colors relative ${

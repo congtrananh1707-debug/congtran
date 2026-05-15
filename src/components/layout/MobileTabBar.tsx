@@ -2,8 +2,8 @@ import type { AppView } from '../../types'
 
 const TABS: { view: AppView; icon: string; label: string }[] = [
   { view: 'dashboard', icon: '🏠',  label: 'Nhà'      },
-  { view: 'quests',    icon: '⚔️',  label: 'Nhiệm vụ' },
-  { view: 'calendar',  icon: '📅',  label: 'Lịch'     },
+  { view: 'todos',     icon: '📋',  label: 'Việc'     },
+  { view: 'games',     icon: '🎮',  label: 'Chơi'     },
   { view: 'heritage',  icon: '🏛️', label: 'Gia phả'  },
   { view: 'profiles',  icon: '👨‍👩‍👧', label: 'Gia đình' },
 ]

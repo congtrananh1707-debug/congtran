@@ -190,6 +190,22 @@ export type CalendarEvent = {
   createdBy: string
 }
 
+// Daily todo — short, recurring chore-style item.
+// `doneDates` keeps an ISO YYYY-MM-DD entry per day the assignee marks it
+// complete; "today's status" is derived from whether todayStr() is in
+// there. Recurring=false todos disappear from "today" after the first
+// done.
+export type DailyTodo = {
+  id: string
+  title: string
+  emoji: string
+  assignedTo: string[]   // member ids
+  recurring: boolean
+  doneDates: string[]    // YYYY-MM-DD strings
+  createdBy: string
+  createdAt: number
+}
+
 // ─── Heritage types ────────────────────────────────────────────────────────────
 
 export type Ancestor = {
@@ -246,6 +262,8 @@ export type AppView =
   | 'calendar'
   | 'heroes'
   | 'heritage'
+  | 'todos'
+  | 'games'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

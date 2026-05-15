@@ -44,7 +44,7 @@ const KITCHEN: RawEntry[] = [
   'sugar|đường|Add sugar to your tea.',
   'pepper|tiêu|Sprinkle pepper on top.',
   'oil|dầu ăn|Pour oil into the pan.',
-  'butter||Spread butter on bread.',
+  'butter|bơ|Spread butter on bread.',
   'cheese|phô mai|Cheese is delicious.',
   'milk|sữa|Drink milk every morning.',
   'water|nước|I drink water.',
@@ -1347,19 +1347,23 @@ const WORD_EMOJI: Record<string, string> = {
 }
 
 function expand(theme: string, raw: RawEntry[]): VocabWord[] {
-  // Dedupe by word within the theme so paste-typos don't double up.
+  // Dedupe by word within the theme so paste-typos don't double up,
+  // and require a non-empty Vietnamese translation so the matching mini
+  // quiz always has a meaning to display next to every word.
   const seen = new Set<string>()
   const out: VocabWord[] = []
   raw.forEach((line, idx) => {
     const [word, translation, example] = line.split('|')
-    if (!word) return
-    const key = word.toLowerCase().trim()
+    const w = (word ?? '').trim()
+    const t = (translation ?? '').trim()
+    if (!w || !t) return
+    const key = w.toLowerCase()
     if (seen.has(key)) return
     seen.add(key)
     out.push({
       id: `v-${theme}-${idx}`,
-      word: word.trim(),
-      translation: (translation ?? '').trim(),
+      word: w,
+      translation: t,
       example: (example ?? '').trim(),
       theme,
       masteredBy: [],

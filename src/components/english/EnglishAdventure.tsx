@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../../store/useStore'
 import { ENGLISH_THEMES, ENGLISH_THEME_LABELS } from '../../types'
@@ -27,9 +27,23 @@ type QuizState = {
   shuffledTranslations: { id: string; text: string }[]
 }
 
+const TOKENS_PER_MATCH = 5
+
 function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string }) {
   const masterVocabWord = useStore((s) => s.masterVocabWord)
+  const updateMember    = useStore((s) => s.updateMember)
+  const members         = useStore((s) => s.members)
   const quizWords = useMemo(() => shuffle(words).slice(0, 4), [words])
+  const [floatScore, setFloatScore] = useState<{ id: number; text: string } | null>(null)
+
+  const award = (n: number) => {
+    const me = members.find((m) => m.id === memberId)
+    if (!me) return
+    updateMember(memberId, { tokens: me.tokens + n })
+    const id = Date.now() + Math.random()
+    setFloatScore({ id, text: `+${n} 🪙` })
+    setTimeout(() => setFloatScore((cur) => (cur?.id === id ? null : cur)), 900)
+  }
 
   const [state, setState] = useState<QuizState>(() => ({
     words: quizWords,
@@ -54,6 +68,7 @@ function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string })
       const next = { ...state, matched: [...state.matched, id], selectedWord: null, wrong: null }
       setState(next)
       masterVocabWord(id, memberId)
+      award(TOKENS_PER_MATCH)
       if (next.matched.length === quizWords.length) setTimeout(() => setDone(true), 400)
     } else {
       setState((s) => ({ ...s, wrong: s.selectedWord, selectedWord: null }))
@@ -77,8 +92,22 @@ function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string })
   }
 
   return (
-    <div>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">Chọn từ bên trái → chọn nghĩa tương ứng bên phải</p>
+    <div className="relative">
+      <AnimatePresence>
+        {floatScore && (
+          <motion.div
+            key={floatScore.id}
+            initial={{ opacity: 0, y: 0, scale: 0.7 }}
+            animate={{ opacity: 1, y: -40, scale: 1 }}
+            exit={{ opacity: 0, y: -60 }}
+            transition={{ duration: 0.9 }}
+            className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-amber-400 text-amber-900 px-3 py-1 rounded-full font-bold text-sm shadow-lg pointer-events-none"
+          >
+            {floatScore.text}
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">Chọn từ bên trái → chọn nghĩa tương ứng bên phải · mỗi cặp đúng được +{TOKENS_PER_MATCH} xu</p>
       <div className="flex gap-4">
         {/* Words column */}
         <div className="flex-1 space-y-2">
@@ -148,8 +177,23 @@ export default function EnglishAdventure() {
   const [showAddWord, setShowAddWord] = useState(false)
   const [wordForm, setWordForm] = useState({ word: '', translation: '', example: '' })
   const [wordDone, setWordDone] = useState(false)
+  const [manageQuery, setManageQuery] = useState('')
+  const [managePage, setManagePage]   = useState(1)
+  const PAGE_SIZE = 30
 
   const themeWords = vocabWords.filter((v) => v.theme === englishTheme)
+  const filteredManage = useMemo(() => {
+    const q = manageQuery.trim().toLowerCase()
+    if (!q) return themeWords
+    return themeWords.filter(
+      (w) => w.word.toLowerCase().includes(q) || w.translation.toLowerCase().includes(q)
+    )
+  }, [themeWords, manageQuery])
+  const totalPages = Math.max(1, Math.ceil(filteredManage.length / PAGE_SIZE))
+  const pageWords  = filteredManage.slice((managePage - 1) * PAGE_SIZE, managePage * PAGE_SIZE)
+  // Reset to page 1 when theme or filter changes so the user never sits on
+  // an empty page after switching contexts.
+  useEffect(() => { setManagePage(1) }, [englishTheme, manageQuery])
   const masteredCount = themeWords.filter((v) => v.masteredBy.includes(currentMemberId || '')).length
   const progress = themeWords.length > 0 ? masteredCount / themeWords.length : 0
 
@@ -330,8 +374,18 @@ export default function EnglishAdventure() {
             )}
           </AnimatePresence>
 
+          {/* Search */}
+          <div className="mb-3">
+            <input
+              value={manageQuery}
+              onChange={(e) => setManageQuery(e.target.value)}
+              placeholder={`🔎 Tìm trong ${themeWords.length} từ...`}
+              className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 text-sm"
+            />
+          </div>
+
           <div className="space-y-2">
-            {themeWords.map((w) => (
+            {pageWords.map((w) => (
               <div key={w.id} className="bg-white dark:bg-gray-800 rounded-xl p-3 flex items-center gap-3 border border-gray-100 dark:border-gray-700 shadow-sm">
                 <button onClick={() => speak(w.word)} className="text-blue-500 text-lg flex-shrink-0">🔊</button>
                 {w.emoji && <span className="text-2xl flex-shrink-0">{w.emoji}</span>}
@@ -345,7 +399,33 @@ export default function EnglishAdventure() {
                 <button onClick={() => removeVocabWord(w.id)} className="text-gray-300 hover:text-red-400 text-sm flex-shrink-0">🗑</button>
               </div>
             ))}
+            {pageWords.length === 0 && (
+              <div className="text-center py-8 text-gray-400 text-sm">Không có từ phù hợp.</div>
+            )}
           </div>
+
+          {/* Pager */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-4">
+              <button
+                onClick={() => setManagePage((p) => Math.max(1, p - 1))}
+                disabled={managePage === 1}
+                className="px-3 py-1.5 rounded-xl text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 disabled:opacity-40"
+              >
+                ‹ Trước
+              </button>
+              <span className="text-sm text-gray-500 dark:text-gray-400 tabular-nums">
+                Trang {managePage}/{totalPages} · {filteredManage.length} từ
+              </span>
+              <button
+                onClick={() => setManagePage((p) => Math.min(totalPages, p + 1))}
+                disabled={managePage === totalPages}
+                className="px-3 py-1.5 rounded-xl text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 disabled:opacity-40"
+              >
+                Sau ›
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

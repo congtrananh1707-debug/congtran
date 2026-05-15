@@ -247,6 +247,21 @@ CREATE TABLE IF NOT EXISTS vocab_words (
   PRIMARY KEY (id, family_code)
 );
 
+-- Daily todos
+CREATE TABLE IF NOT EXISTS todos (
+  id TEXT NOT NULL,
+  family_code TEXT NOT NULL,
+  title TEXT NOT NULL,
+  emoji TEXT DEFAULT '✅',
+  assigned_to TEXT[] DEFAULT '{}',
+  recurring BOOLEAN DEFAULT TRUE,
+  done_dates TEXT[] DEFAULT '{}',
+  created_by TEXT DEFAULT '',
+  created_at BIGINT DEFAULT 0,
+  updated_at BIGINT DEFAULT 0,
+  PRIMARY KEY (id, family_code)
+);
+
 -- Calendar events
 CREATE TABLE IF NOT EXISTS calendar_events (
   id TEXT NOT NULL,

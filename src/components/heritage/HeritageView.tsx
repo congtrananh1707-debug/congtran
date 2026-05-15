@@ -3,7 +3,32 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../../store/useStore'
 import { isParentRole } from '../../types'
 import { compressImage } from '../../utils/image'
+import { solarToLunar, lunarToSolar } from '../../utils/lunar'
 import type { Ancestor, Anniversary } from '../../types'
+
+// Keep the solar death date in step with the lunar day/month a user is
+// typing. Picks the next upcoming year for the solar conversion if no
+// solar death date is set yet, or re-anchors to the same year of an
+// existing one when both day & month are present.
+function syncLunarToSolar<F extends Omit<Ancestor, 'id'>>(form: F): F {
+  if (!form.lunarDeathDay || !form.lunarDeathMonth) return form
+  const anchorYear = form.solarDeathDate
+    ? parseInt(form.solarDeathDate.slice(0, 4), 10) || new Date().getFullYear()
+    : new Date().getFullYear()
+  try {
+    const { year, month, day } = lunarToSolar(
+      form.lunarDeathDay,
+      form.lunarDeathMonth,
+      anchorYear,
+      false,
+    )
+    const mm = String(month).padStart(2, '0')
+    const dd = String(day).padStart(2, '0')
+    return { ...form, solarDeathDate: `${year}-${mm}-${dd}` }
+  } catch {
+    return form
+  }
+}
 
 // ─── Family Tree Canvas ────────────────────────────────────────────────────────
 
@@ -633,17 +658,41 @@ function AncestorFormFields({
       </div>
       <div>
         <label className="text-xs text-amber-700 font-medium block mb-1">🕯️ Ngày mất (dương lịch)</label>
-        <input type="date" value={form.solarDeathDate ?? ''} onChange={(e) => setForm((f) => ({ ...f, solarDeathDate: e.target.value }))}
+        <input type="date" value={form.solarDeathDate ?? ''}
+          onChange={(e) => {
+            const v = e.target.value
+            setForm((f) => {
+              if (!v) return { ...f, solarDeathDate: '' }
+              // Auto-convert solar death date → lunar day/month so families
+              // don't have to look up the giỗ date in a paper calendar.
+              const [yy, mm, dd] = v.split('-').map(Number)
+              const lunar = solarToLunar(yy, mm, dd)
+              return {
+                ...f,
+                solarDeathDate: v,
+                lunarDeathDay: lunar.lunarDay,
+                lunarDeathMonth: lunar.lunarMonth,
+              }
+            })
+          }}
           placeholder="Để trống nếu còn sống" className={inputCls} />
       </div>
       <div>
         <label className="text-xs text-amber-700 font-medium block mb-1">Ngày giỗ âm — Ngày</label>
-        <input type="number" min={1} max={30} value={form.lunarDeathDay ?? ''} onChange={(e) => setForm((f) => ({ ...f, lunarDeathDay: e.target.value ? parseInt(e.target.value) : undefined }))}
+        <input type="number" min={1} max={30} value={form.lunarDeathDay ?? ''}
+          onChange={(e) => {
+            const v = e.target.value ? parseInt(e.target.value) : undefined
+            setForm((f) => syncLunarToSolar({ ...f, lunarDeathDay: v }))
+          }}
           placeholder="15" className={inputCls} />
       </div>
       <div>
         <label className="text-xs text-amber-700 font-medium block mb-1">Ngày giỗ âm — Tháng</label>
-        <input type="number" min={1} max={12} value={form.lunarDeathMonth ?? ''} onChange={(e) => setForm((f) => ({ ...f, lunarDeathMonth: e.target.value ? parseInt(e.target.value) : undefined }))}
+        <input type="number" min={1} max={12} value={form.lunarDeathMonth ?? ''}
+          onChange={(e) => {
+            const v = e.target.value ? parseInt(e.target.value) : undefined
+            setForm((f) => syncLunarToSolar({ ...f, lunarDeathMonth: v }))
+          }}
           placeholder="7" className={inputCls} />
       </div>
 

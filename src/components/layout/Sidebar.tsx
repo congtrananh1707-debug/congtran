@@ -5,8 +5,10 @@ import type { AppView, Member } from '../../types'
 const NAV_ITEMS: { view: AppView; icon: string; label: string }[] = [
   { view: 'dashboard', icon: '🏠',  label: 'Trang chủ'          },
   { view: 'profiles',  icon: '👨‍👩‍👧', label: 'Thành viên'          },
+  { view: 'todos',     icon: '📋',  label: 'Việc trong ngày'    },
   { view: 'quests',    icon: '⚔️',  label: 'Nhiệm vụ'            },
   { view: 'rewards',   icon: '🎁',  label: 'Phần thưởng'         },
+  { view: 'games',     icon: '🎮',  label: 'Trò chơi học tập'   },
   { view: 'mailbox',   icon: '✉️',  label: 'Hộp thư bí mật'     },
   { view: 'gratitude', icon: '💛',  label: 'Bức tường biết ơn'  },
   { view: 'wheel',     icon: '🎡',  label: 'Vòng quay may mắn'  },
