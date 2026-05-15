@@ -190,6 +190,17 @@ export type CalendarEvent = {
   createdBy: string
 }
 
+// Per-family game rewards configuration. Lets parents tune how much each
+// kid-game answer is worth (or zero it out if they don't want kids
+// farming the reward shop). Kept on the store as plain numbers; the
+// games read them directly via useStore.
+export type GameRewards = {
+  memoryPair: number       // xu per matched pair in Memory Match
+  memoryRoundCap: number   // max xu earnable per Memory round
+  guessWord: number        // xu per correct answer in Đoán từ
+  vocabMatch: number       // xu per correct match in EnglishAdventure mini-quiz
+}
+
 // Daily todo — short, recurring chore-style item.
 // `doneDates` keeps an ISO YYYY-MM-DD entry per day the assignee marks it
 // complete; "today's status" is derived from whether todayStr() is in

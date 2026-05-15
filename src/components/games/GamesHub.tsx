@@ -4,11 +4,6 @@ import { useStore } from '../../store/useStore'
 import { shuffle } from '../../utils/helpers'
 import { VOCAB_DATA } from '../../data/vocab'
 
-// Each correctly matched pair awards this many tokens. Capped per round so
-// kids can't farm the game to bankrupt the reward shop in one sitting.
-const TOKENS_PER_PAIR = 5
-const TOKENS_PER_ROUND_CAP = 60
-
 type GameKey = 'memory' | 'guess'
 
 // ─── Memory Match ───────────────────────────────────────────────────────────
@@ -36,6 +31,8 @@ function makeMemoryDeck(pairCount: number): Card[] {
 function MemoryMatch({ memberId, onExit }: { memberId: string; onExit: () => void }) {
   const updateMember = useStore((s) => s.updateMember)
   const members      = useStore((s) => s.members)
+  const tokensPerPair = useStore((s) => s.gameRewards.memoryPair)
+  const roundCap      = useStore((s) => s.gameRewards.memoryRoundCap)
   const [pairCount] = useState(8)
   const [cards, setCards] = useState<Card[]>(() => makeMemoryDeck(pairCount))
   const [selected, setSelected] = useState<Card[]>([])
@@ -63,10 +60,10 @@ function MemoryMatch({ memberId, onExit }: { memberId: string; onExit: () => voi
         )
         setSelected([])
         if (isMatch) {
-          const next = Math.min(TOKENS_PER_ROUND_CAP, earned + TOKENS_PER_PAIR)
+          const next = Math.min(roundCap, earned + tokensPerPair)
           setEarned(next)
           const me = members.find((m) => m.id === memberId)
-          if (me) updateMember(memberId, { tokens: me.tokens + (next - earned) })
+          if (me && next > earned) updateMember(memberId, { tokens: me.tokens + (next - earned) })
           // Check completion using the updated card list
           const remaining = cards.filter((c) => !c.matched && c.cardId !== a.cardId && c.cardId !== b.cardId).length
           if (remaining === 0) setTimeout(() => setWon(true), 350)
@@ -89,8 +86,10 @@ function MemoryMatch({ memberId, onExit }: { memberId: string; onExit: () => voi
       </div>
 
       <p className="text-sm text-center text-gray-500 mb-4">
-        Mở 2 thẻ — ghép từ tiếng Anh với icon tương ứng. Mỗi cặp đúng được +{TOKENS_PER_PAIR} 🪙
-        (tối đa {TOKENS_PER_ROUND_CAP} xu/ván).
+        Mở 2 thẻ — ghép từ tiếng Anh với icon tương ứng.
+        {tokensPerPair > 0
+          ? <> Mỗi cặp đúng được <strong>+{tokensPerPair} 🪙</strong> (tối đa {roundCap} xu/ván).</>
+          : ' (Bố mẹ đã tắt thưởng xu cho trò này.)'}
       </p>
 
       <div className="grid grid-cols-4 gap-2 sm:gap-3">
@@ -142,6 +141,7 @@ function MemoryMatch({ memberId, onExit }: { memberId: string; onExit: () => voi
 function GuessGame({ memberId, onExit }: { memberId: string; onExit: () => void }) {
   const updateMember = useStore((s) => s.updateMember)
   const members      = useStore((s) => s.members)
+  const tokensPerWord = useStore((s) => s.gameRewards.guessWord)
   const [pool] = useState(() => shuffle(VOCAB_DATA.filter((v) => v.emoji)).slice(0, 10))
   const [idx, setIdx] = useState(0)
   const [input, setInput] = useState('')
@@ -157,7 +157,7 @@ function GuessGame({ memberId, onExit }: { memberId: string; onExit: () => void 
       setFeedback('correct')
       setScore((s) => s + 1)
       const me = members.find((m) => m.id === memberId)
-      if (me) updateMember(memberId, { tokens: me.tokens + TOKENS_PER_PAIR })
+      if (me && tokensPerWord > 0) updateMember(memberId, { tokens: me.tokens + tokensPerWord })
       setTimeout(() => {
         setFeedback('idle'); setInput('')
         if (idx + 1 >= pool.length) setDone(true)
@@ -174,7 +174,7 @@ function GuessGame({ memberId, onExit }: { memberId: string; onExit: () => void 
       <div className="p-4 lg:p-6 max-w-md mx-auto text-center">
         <div className="text-6xl mb-3">{score >= 8 ? '🏆' : score >= 5 ? '🎉' : '💪'}</div>
         <p className="text-xl font-bold text-gray-800 dark:text-white mb-1">{score}/{pool.length} đúng</p>
-        <p className="text-gray-500 mb-4">+{score * TOKENS_PER_PAIR} 🪙</p>
+        <p className="text-gray-500 mb-4">+{score * tokensPerWord} 🪙</p>
         <div className="flex gap-2 justify-center">
           <button onClick={() => { setIdx(0); setInput(''); setScore(0); setDone(false) }} className="bg-violet-600 text-white px-5 py-2 rounded-xl font-medium hover:bg-violet-700">Chơi lại</button>
           <button onClick={onExit} className="bg-gray-100 text-gray-700 px-5 py-2 rounded-xl font-medium hover:bg-gray-200">Đóng</button>
@@ -214,7 +214,9 @@ function GuessGame({ memberId, onExit }: { memberId: string; onExit: () => void 
         className="w-full bg-violet-600 text-white py-3 rounded-2xl font-bold hover:bg-violet-700 disabled:opacity-50">
         {feedback === 'correct' ? '✅ Đúng rồi!' : 'Kiểm tra'}
       </button>
-      <p className="text-center text-sm text-gray-400 mt-3">⭐ {score} đúng · mỗi câu +{TOKENS_PER_PAIR} 🪙</p>
+      <p className="text-center text-sm text-gray-400 mt-3">
+        ⭐ {score} đúng{tokensPerWord > 0 ? <> · mỗi câu +{tokensPerWord} 🪙</> : ''}
+      </p>
     </div>
   )
 }

@@ -4,8 +4,15 @@ import type {
   Member, HealthRecord, SkillNode, Quest, Reward, MailMessage,
   GratitudeNote, WheelItem, QuizQuestion, FamilyQuest, Album, Photo,
   MoodTag, MailReaction, QuestStatus, SilentHero, VocabWord, CalendarEvent,
-  Ancestor, Anniversary, DailyTodo,
+  Ancestor, Anniversary, DailyTodo, GameRewards,
 } from '../types'
+
+const DEFAULT_GAME_REWARDS: GameRewards = {
+  memoryPair: 5,
+  memoryRoundCap: 60,
+  guessWord: 5,
+  vocabMatch: 5,
+}
 import { nanoid, todayStr } from '../utils/helpers'
 import { queueDelete } from '../utils/deletionQueue'
 import { VOCAB_DATA } from '../data/vocab'
@@ -169,6 +176,9 @@ type Store = {
   // Daily todos
   todos: DailyTodo[]
 
+  // Game rewards — parents tune how much each game answer is worth
+  gameRewards: GameRewards
+
   // Auth actions
   verifyPin: (input: string) => boolean
   logout: () => void
@@ -282,6 +292,10 @@ type Store = {
   updateTodo: (id: string, data: Partial<DailyTodo>) => void
   removeTodo: (id: string) => void
   toggleTodo: (id: string, dateStr: string) => void
+
+  // Game rewards
+  setGameRewards: (rewards: Partial<GameRewards>) => void
+  resetGameRewards: () => void
 }
 
 // ─── Store implementation ─────────────────────────────────────────────────────
@@ -320,6 +334,7 @@ export const useStore = create<Store>()(
       ancestors:      SEED_ANCESTORS,
       anniversaries:  SEED_ANNIVERSARIES,
       todos:          [],
+      gameRewards:    { ...DEFAULT_GAME_REWARDS },
 
       // Auth
       verifyPin: (input) => {
@@ -511,6 +526,12 @@ export const useStore = create<Store>()(
           return { ...t, doneDates: has ? t.doneDates.filter((d) => d !== dateStr) : [...t.doneDates, dateStr] }
         }),
       })),
+
+      // Game rewards
+      setGameRewards: (rewards) => set((s) => ({
+        gameRewards: { ...s.gameRewards, ...rewards },
+      })),
+      resetGameRewards: () => set({ gameRewards: { ...DEFAULT_GAME_REWARDS } }),
     }),
     {
       name: 'family-hub-v1',
@@ -582,6 +603,12 @@ export const useStore = create<Store>()(
             (v) => !isLegacySeed(v.id) && !isNewSeed(v.id)
           )
           persisted = { ...persisted, vocabWords: [...VOCAB_DATA, ...userAdded] }
+        }
+        // Always make sure gameRewards exists with sensible defaults so the
+        // games never read `undefined.memoryPair` after an older device
+        // hydrates a state that predates this field.
+        if (!persisted.gameRewards) {
+          persisted = { ...persisted, gameRewards: { ...DEFAULT_GAME_REWARDS } }
         }
         return persisted
       },

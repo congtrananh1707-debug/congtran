@@ -27,16 +27,16 @@ type QuizState = {
   shuffledTranslations: { id: string; text: string }[]
 }
 
-const TOKENS_PER_MATCH = 5
-
 function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string }) {
   const masterVocabWord = useStore((s) => s.masterVocabWord)
   const updateMember    = useStore((s) => s.updateMember)
   const members         = useStore((s) => s.members)
+  const tokensPerMatch  = useStore((s) => s.gameRewards.vocabMatch)
   const quizWords = useMemo(() => shuffle(words).slice(0, 4), [words])
   const [floatScore, setFloatScore] = useState<{ id: number; text: string } | null>(null)
 
   const award = (n: number) => {
+    if (n <= 0) return
     const me = members.find((m) => m.id === memberId)
     if (!me) return
     updateMember(memberId, { tokens: me.tokens + n })
@@ -68,7 +68,7 @@ function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string })
       const next = { ...state, matched: [...state.matched, id], selectedWord: null, wrong: null }
       setState(next)
       masterVocabWord(id, memberId)
-      award(TOKENS_PER_MATCH)
+      award(tokensPerMatch)
       if (next.matched.length === quizWords.length) setTimeout(() => setDone(true), 400)
     } else {
       setState((s) => ({ ...s, wrong: s.selectedWord, selectedWord: null }))
@@ -82,7 +82,10 @@ function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string })
         className="text-center py-8">
         <div className="text-6xl mb-3">🏆</div>
         <p className="text-xl font-bold text-gray-800 dark:text-white mb-1">Xuất sắc!</p>
-        <p className="text-gray-500 text-sm mb-4">Bạn đã ghép đúng tất cả! +{quizWords.length * 5} xu được ghi nhận</p>
+        <p className="text-gray-500 text-sm mb-4">
+          Bạn đã ghép đúng tất cả!
+          {tokensPerMatch > 0 && <> +{quizWords.length * tokensPerMatch} xu được ghi nhận</>}
+        </p>
         <button onClick={() => { setDone(false); setState({ words: quizWords, selectedWord: null, matched: [], wrong: null, shuffledTranslations: shuffle(quizWords.map((w) => ({ id: w.id, text: w.translation }))) }) }}
           className="bg-violet-600 text-white px-6 py-2 rounded-xl font-medium text-sm hover:bg-violet-700">
           Chơi lại
@@ -107,7 +110,10 @@ function MiniQuiz({ words, memberId }: { words: VocabWord[]; memberId: string })
           </motion.div>
         )}
       </AnimatePresence>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">Chọn từ bên trái → chọn nghĩa tương ứng bên phải · mỗi cặp đúng được +{TOKENS_PER_MATCH} xu</p>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">
+        Chọn từ bên trái → chọn nghĩa tương ứng bên phải
+        {tokensPerMatch > 0 && <> · mỗi cặp đúng được +{tokensPerMatch} xu</>}
+      </p>
       <div className="flex gap-4">
         {/* Words column */}
         <div className="flex-1 space-y-2">

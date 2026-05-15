@@ -24,6 +24,9 @@ export default function Settings() {
   const familyName      = useStore((s) => s.familyName)
   const setFamilyName   = useStore((s) => s.setFamilyName)
   const lastPushAt      = useStore((s) => s.lastPushAt)
+  const gameRewards     = useStore((s) => s.gameRewards)
+  const setGameRewards  = useStore((s) => s.setGameRewards)
+  const resetGameRewards= useStore((s) => s.resetGameRewards)
 
   const me = members.find((m) => m.id === currentMemberId)
   const isParent = me ? isParentRole(me.role) : false
@@ -261,6 +264,51 @@ export default function Settings() {
 
       {isParent && (
         <>
+          {/* Game Rewards */}
+          <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-3xl p-5 shadow-sm border border-amber-200 dark:border-amber-700">
+            <div className="flex items-start justify-between mb-1">
+              <h3 className="font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2">🎮 Thưởng xu trong trò chơi</h3>
+              <button
+                onClick={() => { if (window.confirm('Khôi phục về mặc định (5, 60, 5, 5)?')) resetGameRewards() }}
+                className="text-xs text-amber-700 dark:text-amber-300 hover:underline"
+              >
+                ↺ Mặc định
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+              Đặt số xu con kiếm được sau mỗi câu/cặp đúng. Đặt <strong>0</strong> nếu muốn tắt thưởng hoàn toàn cho một trò.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">🧠 Tìm cặp — mỗi cặp đúng</label>
+                <input type="number" min={0} max={100} value={gameRewards.memoryPair}
+                  onChange={(e) => setGameRewards({ memoryPair: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">🧠 Tìm cặp — trần xu/ván</label>
+                <input type="number" min={0} max={500} value={gameRewards.memoryRoundCap}
+                  onChange={(e) => setGameRewards({ memoryRoundCap: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">⌨️ Đoán từ — mỗi câu đúng</label>
+                <input type="number" min={0} max={100} value={gameRewards.guessWord}
+                  onChange={(e) => setGameRewards({ guessWord: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">🎯 Mini Quiz từ vựng — mỗi cặp</label>
+                <input type="number" min={0} max={100} value={gameRewards.vocabMatch}
+                  onChange={(e) => setGameRewards({ vocabMatch: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm" />
+              </div>
+            </div>
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
+              💡 Thay đổi áp dụng ngay. Cấu hình lưu local trên thiết bị này.
+            </p>
+          </div>
+
           {/* Family Identity */}
           <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-3xl p-5 shadow-sm border border-emerald-200 dark:border-emerald-700">
             <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-1 flex items-center gap-2">🏡 Danh tính gia đình</h3>
