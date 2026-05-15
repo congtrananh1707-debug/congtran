@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { useStore } from '../../store/useStore'
-import { isOnThisDay, yearsAgo } from '../../utils/helpers'
+import { isOnThisDay, yearsAgo, todayStr } from '../../utils/helpers'
 import { isParentRole, ROLE_CONFIG } from '../../types'
 import type { AppView } from '../../types'
 
@@ -37,6 +37,8 @@ export default function Dashboard({ setView, setProfileId }: Props) {
   const photos            = useStore((s) => s.photos)
   const albums            = useStore((s) => s.albums)
   const anniversaries     = useStore((s) => s.anniversaries)
+  const todos             = useStore((s) => s.todos)
+  const toggleTodo        = useStore((s) => s.toggleTodo)
   const incrementFamilyQuest = useStore((s) => s.incrementFamilyQuest)
 
   const me = members.find((m) => m.id === currentMemberId)
@@ -45,6 +47,17 @@ export default function Dashboard({ setView, setProfileId }: Props) {
   const pendingQuests  = quests.filter((q) => q.status === 'pending')
   const unreadMails    = mails.filter((m) => !m.readBy.includes(currentMemberId || '') && m.to.includes(currentMemberId || ''))
   const myActiveQuests = quests.filter((q) => q.status === 'active' && q.assignedTo.includes(currentMemberId || ''))
+
+  // Today's todos for the current member — preserves the existing recurring
+  // vs one-shot semantics from DailyTodos but in widget form so the kid
+  // sees their checklist the second they log in.
+  const today = todayStr()
+  const myTodosToday = todos.filter((t) => {
+    if (!t.assignedTo.includes(currentMemberId || '')) return false
+    if (!t.recurring && t.doneDates.includes(today)) return false
+    return true
+  })
+  const myTodosDone = myTodosToday.filter((t) => t.doneDates.includes(today)).length
 
   // On This Day photos
   const onThisDayPhotos = useMemo(() => {
@@ -159,6 +172,63 @@ export default function Dashboard({ setView, setProfileId }: Props) {
           </motion.div>
         ))}
       </div>
+
+      {/* Today's todos for current member */}
+      {myTodosToday.length > 0 && (
+        <motion.div initial={{ y: 10, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+          className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-3xl p-5 mb-6 shadow-sm"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-xs text-violet-600 dark:text-violet-400 font-semibold uppercase tracking-wide">📋 Việc hôm nay</p>
+              <p className="font-bold text-gray-800 dark:text-white text-lg">
+                {myTodosDone}/{myTodosToday.length} hoàn thành
+              </p>
+            </div>
+            <button onClick={() => setView('todos')}
+              className="text-xs text-violet-600 dark:text-violet-400 hover:underline">
+              Tất cả →
+            </button>
+          </div>
+          <div className="bg-gray-100 dark:bg-gray-700 rounded-full h-2 mb-4 overflow-hidden">
+            <motion.div
+              className="bg-violet-500 h-2"
+              initial={{ width: 0 }}
+              animate={{ width: `${myTodosToday.length === 0 ? 0 : (myTodosDone / myTodosToday.length) * 100}%` }}
+              transition={{ duration: 0.5 }}
+            />
+          </div>
+          <div className="space-y-1.5">
+            {myTodosToday.slice(0, 5).map((t) => {
+              const done = t.doneDates.includes(today)
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => toggleTodo(t.id, today)}
+                  className={`w-full flex items-center gap-3 p-2 rounded-xl transition-colors text-left ${
+                    done ? 'opacity-50' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                  }`}
+                >
+                  <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0 ${
+                    done ? 'bg-emerald-500 text-white' : 'bg-gray-100 dark:bg-gray-700'
+                  }`}>
+                    {done ? '✓' : t.emoji}
+                  </span>
+                  <span className={`text-sm text-gray-800 dark:text-gray-200 flex-1 ${done ? 'line-through' : ''}`}>
+                    {t.title}
+                  </span>
+                </button>
+              )
+            })}
+            {myTodosToday.length > 5 && (
+              <button onClick={() => setView('todos')}
+                className="w-full text-center text-xs text-violet-600 dark:text-violet-400 hover:underline py-1">
+                +{myTodosToday.length - 5} việc khác →
+              </button>
+            )}
+          </div>
+        </motion.div>
+      )}
 
       {/* Family Quest Progress */}
       {activeFamilyQuest && (

@@ -314,6 +314,30 @@ export default function Settings() {
                   className="w-20 text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm font-bold" />
                 <span className="text-sm text-gray-500">🪙</span>
               </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🪢</span>
+                <div className="flex-1">
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block">Hangman</label>
+                  <p className="text-[11px] text-gray-400">Đoán đúng từ trước khi hết lượt sai</p>
+                </div>
+                <input type="number" min={0} max={500} value={gameRewards.hangmanComplete}
+                  onChange={(e) => setGameRewards({ hangmanComplete: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="w-20 text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm font-bold" />
+                <span className="text-sm text-gray-500">🪙</span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🔤</span>
+                <div className="flex-1">
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block">Xếp chữ</label>
+                  <p className="text-[11px] text-gray-400">Hoàn thành 10 từ xáo trộn</p>
+                </div>
+                <input type="number" min={0} max={500} value={gameRewards.scrambleComplete}
+                  onChange={(e) => setGameRewards({ scrambleComplete: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="w-20 text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm font-bold" />
+                <span className="text-sm text-gray-500">🪙</span>
+              </div>
             </div>
             <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
               💡 Thay đổi áp dụng ngay. Cấu hình lưu local trên thiết bị này.

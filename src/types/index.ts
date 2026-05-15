@@ -40,6 +40,10 @@ export type Member = {
   goals: string[]
   tokens: number
   avatarUrl?: string
+  // Optional per-member PIN. When set, picking this member's avatar on
+  // the home screen prompts for it; left blank means "anyone can tap and
+  // log in as me" (useful for young kids).
+  pin?: string
 }
 
 export type HealthRecord = {
@@ -190,13 +194,31 @@ export type CalendarEvent = {
   createdBy: string
 }
 
+// Lightweight in-app notification — created when a member becomes the
+// recipient of a quest assignment, a todo, or a mail. The bell badge in
+// the header shows the unread count; clicking the bell drops the user
+// into the relevant view and marks the entry read.
+export type NotifKind = 'quest' | 'todo' | 'mail'
+export type Notification = {
+  id: string
+  recipientId: string  // member id who should see this
+  kind: NotifKind
+  title: string        // short headline
+  body?: string        // optional second line
+  refId: string        // id of the underlying quest/todo/mail row
+  createdAt: number
+  readAt?: number
+}
+
 // Per-family game rewards configuration. One number per game = the xu the
 // kid earns when they finish a round. Parents tune this from Settings; set
 // any value to 0 to turn off the token loop for that game entirely.
 export type GameRewards = {
-  memoryComplete: number   // xu when a Memory Match round is fully cleared
-  guessComplete: number    // xu when Đoán từ finishes its 10 questions
-  vocabComplete: number    // xu when the EnglishAdventure mini-quiz is matched
+  memoryComplete: number    // xu when a Memory Match round is fully cleared
+  guessComplete: number     // xu when Đoán từ finishes its 10 questions
+  vocabComplete: number     // xu when the EnglishAdventure mini-quiz is matched
+  hangmanComplete: number   // xu when a Hangman word is guessed (any tries left)
+  scrambleComplete: number  // xu when the scrambled word is unscrambled
 }
 
 // Daily todo — short, recurring chore-style item.

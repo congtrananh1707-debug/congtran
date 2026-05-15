@@ -3,6 +3,7 @@ import type { AppView } from '../../types'
 import Sidebar from './Sidebar'
 import MobileTabBar from './MobileTabBar'
 import SyncStatusBar from '../ui/SyncStatusBar'
+import NotificationBell from '../ui/NotificationBell'
 import { useStore } from '../../store/useStore'
 
 type Props = {
@@ -64,8 +65,9 @@ export default function AppLayout({ children, view, setView, setProfileId }: Pro
             <span className="text-2xl">🏠</span>
             <span className="font-bold text-gray-800 dark:text-white text-lg">{appName}</span>
           </div>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-2">
             <SyncStatusBar />
+            <NotificationBell setView={navigate} />
             {me && (
               <button onClick={() => { navigate('profile'); setProfileId(me.id) }} className="flex items-center gap-2">
                 <div className={`w-9 h-9 rounded-full ${me.color} flex items-center justify-center text-lg shadow overflow-hidden`}>

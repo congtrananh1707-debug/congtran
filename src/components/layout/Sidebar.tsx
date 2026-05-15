@@ -1,6 +1,7 @@
 import { useStore } from '../../store/useStore'
 import { isParentRole, ROLE_CONFIG } from '../../types'
 import type { AppView, Member } from '../../types'
+import NotificationBell from '../ui/NotificationBell'
 
 const NAV_ITEMS: { view: AppView; icon: string; label: string }[] = [
   { view: 'dashboard', icon: '🏠',  label: 'Trang chủ'          },
@@ -55,11 +56,12 @@ export default function Sidebar({ view, setView, me, logout }: Props) {
                 ? <img src={me.avatarUrl} alt={me.name} className="w-full h-full object-cover" />
                 : <span>{me.emoji}</span>}
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="font-semibold text-gray-800 dark:text-white text-sm">{me.name}</p>
               {me.role === 'child' && <p className="text-xs text-amber-600 font-medium">🪙 {me.tokens} xu</p>}
               {isParent && <p className="text-xs text-violet-500">{roleLabel}</p>}
             </div>
+            <NotificationBell setView={setView} />
           </div>
         </div>
       )}

@@ -50,6 +50,7 @@ export const SCHEMA_SQL = `
 --   ALTER TABLE anniversaries  ADD COLUMN IF NOT EXISTS updated_at BIGINT DEFAULT 0;
 --   ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS updated_at BIGINT DEFAULT 0;
 --   ALTER TABLE app_settings   ADD COLUMN IF NOT EXISTS last_push_at BIGINT DEFAULT 0;
+--   ALTER TABLE members        ADD COLUMN IF NOT EXISTS pin TEXT;
 
 -- Members
 CREATE TABLE IF NOT EXISTS members (
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS members (
   goals TEXT[] DEFAULT '{}',
   tokens INTEGER DEFAULT 0,
   avatar_url TEXT,
+  pin TEXT,
   updated_at BIGINT DEFAULT 0,
   PRIMARY KEY (id, family_code)
 );

@@ -327,6 +327,9 @@ export default function ProfilePage({ memberId, onBack }: Props) {
                 {member.goals.length === 0 && !editing && <p className="text-gray-400 text-sm">Chưa có mục tiêu nào</p>}
               </div>
             </div>
+
+            {/* Personal PIN — owner OR parent can manage */}
+            {canEdit && <PersonalPinSection memberId={memberId} />}
           </div>
         )}
 
@@ -377,6 +380,109 @@ export default function ProfilePage({ memberId, onBack }: Props) {
 
       {/* Unused variable suppression */}
       {void displayForm}
+    </div>
+  )
+}
+
+// ─── Personal PIN section ────────────────────────────────────────────────────
+// Each member can have their own 4–8 digit PIN. When set, the avatar on the
+// home screen carries a 🔒 badge and login requires the PIN. Owners can set
+// their own; parents can set anyone's (useful to lock down their own
+// account from a curious kid).
+
+function PersonalPinSection({ memberId }: { memberId: string }) {
+  const members      = useStore((s) => s.members)
+  const updateMember = useStore((s) => s.updateMember)
+  const member       = members.find((m) => m.id === memberId)
+
+  const [editing, setEditing] = useState(false)
+  const [pin1, setPin1] = useState('')
+  const [pin2, setPin2] = useState('')
+  const [msg, setMsg]   = useState<{ ok: boolean; text: string } | null>(null)
+
+  if (!member) return null
+  const hasPin = !!member.pin && member.pin.length > 0
+
+  const save = () => {
+    if (pin1.length < 4) { setMsg({ ok: false, text: 'PIN phải có ít nhất 4 chữ số' }); return }
+    if (pin1 !== pin2) { setMsg({ ok: false, text: 'Hai lần nhập không trùng nhau' }); return }
+    updateMember(memberId, { pin: pin1 })
+    setMsg({ ok: true, text: '✅ Đã đặt PIN cá nhân' })
+    setPin1(''); setPin2(''); setEditing(false)
+    setTimeout(() => setMsg(null), 2500)
+  }
+  const clearPin = () => {
+    if (!window.confirm(`Bỏ PIN cá nhân của ${member.name}? Bất kỳ ai cũng có thể chọn tài khoản này.`)) return
+    updateMember(memberId, { pin: undefined })
+    setMsg({ ok: true, text: '✅ Đã bỏ PIN — ai cũng vào được' })
+    setEditing(false)
+    setTimeout(() => setMsg(null), 2500)
+  }
+
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-700 pt-5 mt-5">
+      <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 mb-1 flex items-center gap-2">
+        🔒 PIN cá nhân {hasPin ? <span className="text-xs text-emerald-600">· đã đặt</span> : <span className="text-xs text-gray-400">· chưa đặt</span>}
+      </h3>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        Khi chọn avatar trên màn hình đăng nhập, sẽ phải nhập PIN này.
+        {!hasPin && ' Để trống = ai cũng có thể chọn tài khoản này.'}
+      </p>
+
+      {!editing ? (
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => { setEditing(true); setPin1(''); setPin2(''); setMsg(null) }}
+            className="bg-violet-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-violet-700"
+          >
+            {hasPin ? 'Đổi PIN' : 'Đặt PIN'}
+          </button>
+          {hasPin && (
+            <button
+              onClick={clearPin}
+              className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-200"
+            >
+              Bỏ PIN
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <input
+            type="password"
+            inputMode="numeric"
+            value={pin1}
+            onChange={(e) => setPin1(e.target.value.replace(/\D/g, '').slice(0, 8))}
+            placeholder="PIN mới (4–8 chữ số)"
+            className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm text-center tracking-widest"
+            maxLength={8}
+            autoFocus
+          />
+          <input
+            type="password"
+            inputMode="numeric"
+            value={pin2}
+            onChange={(e) => setPin2(e.target.value.replace(/\D/g, '').slice(0, 8))}
+            placeholder="Nhập lại để xác nhận"
+            className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-2.5 text-sm text-center tracking-widest"
+            maxLength={8}
+          />
+          <div className="flex gap-2">
+            <button onClick={() => { setEditing(false); setPin1(''); setPin2(''); setMsg(null) }}
+              className="flex-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 py-2 rounded-xl text-sm hover:bg-gray-200">
+              Hủy
+            </button>
+            <button onClick={save}
+              className="flex-1 bg-violet-600 text-white py-2 rounded-xl text-sm font-medium hover:bg-violet-700">
+              Lưu
+            </button>
+          </div>
+        </div>
+      )}
+
+      {msg && (
+        <p className={`text-sm mt-2 ${msg.ok ? 'text-emerald-600' : 'text-red-500'}`}>{msg.text}</p>
+      )}
     </div>
   )
 }

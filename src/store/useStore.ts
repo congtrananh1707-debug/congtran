@@ -4,13 +4,15 @@ import type {
   Member, HealthRecord, SkillNode, Quest, Reward, MailMessage,
   GratitudeNote, WheelItem, QuizQuestion, FamilyQuest, Album, Photo,
   MoodTag, MailReaction, QuestStatus, SilentHero, VocabWord, CalendarEvent,
-  Ancestor, Anniversary, DailyTodo, GameRewards,
+  Ancestor, Anniversary, DailyTodo, GameRewards, Notification, NotifKind,
 } from '../types'
 
 const DEFAULT_GAME_REWARDS: GameRewards = {
-  memoryComplete: 10,
-  guessComplete:  10,
-  vocabComplete:  10,
+  memoryComplete:   10,
+  guessComplete:    10,
+  vocabComplete:    10,
+  hangmanComplete:  10,
+  scrambleComplete: 10,
 }
 import { nanoid, todayStr } from '../utils/helpers'
 import { queueDelete } from '../utils/deletionQueue'
@@ -178,6 +180,9 @@ type Store = {
   // Game rewards — parents tune how much each game answer is worth
   gameRewards: GameRewards
 
+  // In-app notifications (per family, local + synced)
+  notifications: Notification[]
+
   // Auth actions
   verifyPin: (input: string) => boolean
   logout: () => void
@@ -295,6 +300,12 @@ type Store = {
   // Game rewards
   setGameRewards: (rewards: Partial<GameRewards>) => void
   resetGameRewards: () => void
+
+  // Notifications
+  notify: (recipientIds: string[], kind: NotifKind, title: string, refId: string, body?: string) => void
+  markNotifRead: (id: string) => void
+  markAllNotifsRead: (memberId: string) => void
+  clearNotifs: (memberId: string) => void
 }
 
 // ─── Store implementation ─────────────────────────────────────────────────────
@@ -334,6 +345,7 @@ export const useStore = create<Store>()(
       anniversaries:  SEED_ANNIVERSARIES,
       todos:          [],
       gameRewards:    { ...DEFAULT_GAME_REWARDS },
+      notifications:  [],
 
       // Auth
       verifyPin: (input) => {
@@ -380,7 +392,13 @@ export const useStore = create<Store>()(
       removeSkill: (id) => { queueDelete('skills', id); set((s) => ({ skills: s.skills.filter((sk) => sk.id !== id) })) },
 
       // Quests
-      addQuest: (data) => set((s) => ({ quests: [{ ...data, id: nanoid(), status: 'active' as QuestStatus }, ...s.quests] })),
+      addQuest: (data) => {
+        const id = nanoid()
+        set((s) => ({ quests: [{ ...data, id, status: 'active' as QuestStatus }, ...s.quests] }))
+        if (data.assignedTo?.length) {
+          get().notify(data.assignedTo, 'quest', `⚔️ ${data.title}`, id, `Nhiệm vụ mới · 🪙 ${data.tokens} xu`)
+        }
+      },
       updateQuest: (id, data) => set((s) => ({ quests: s.quests.map((q) => q.id === id ? { ...q, ...data } : q) })),
       completeQuest: (id, memberId) => set((s) => ({
         quests: s.quests.map((q) => q.id === id ? { ...q, status: 'pending', completedBy: memberId, completedAt: Date.now() } : q),
@@ -413,8 +431,16 @@ export const useStore = create<Store>()(
       },
 
       // Mail
-      sendMail: (from, to, subject, body, mood) =>
-        set((s) => ({ mails: [{ id: nanoid(), from, to, subject, body, mood, timestamp: Date.now(), readBy: [from], reactions: [], replies: [] }, ...s.mails] })),
+      sendMail: (from, to, subject, body, mood) => {
+        const id = nanoid()
+        set((s) => ({ mails: [{ id, from, to, subject, body, mood, timestamp: Date.now(), readBy: [from], reactions: [], replies: [] }, ...s.mails] }))
+        if (to.length) {
+          const sender = get().members.find((m) => m.id === from)
+          const headline = `✉️ ${subject || '(không tiêu đề)'}`
+          const preview = sender ? `Từ ${sender.emoji} ${sender.name}` : 'Thư mới'
+          get().notify(to, 'mail', headline, id, preview)
+        }
+      },
       replyMail: (mailId, from, body, reaction) => set((s) => ({
         mails: s.mails.map((m) => m.id === mailId ? { ...m, replies: [...m.replies, { id: nanoid(), from, body, reaction, timestamp: Date.now() }] } : m),
       })),
@@ -511,9 +537,15 @@ export const useStore = create<Store>()(
       removeAnniversary: (id) => { queueDelete('anniversaries', id); set((s) => ({ anniversaries: s.anniversaries.filter((a) => a.id !== id) })) },
 
       // Daily todos
-      addTodo: (data) => set((s) => ({
-        todos: [...s.todos, { ...data, id: nanoid(), doneDates: [], createdAt: Date.now() }],
-      })),
+      addTodo: (data) => {
+        const id = nanoid()
+        set((s) => ({
+          todos: [...s.todos, { ...data, id, doneDates: [], createdAt: Date.now() }],
+        }))
+        if (data.assignedTo?.length) {
+          get().notify(data.assignedTo, 'todo', `📋 ${data.title}`, id, data.recurring ? 'Việc lặp lại mỗi ngày' : 'Việc một lần')
+        }
+      },
       updateTodo: (id, data) => set((s) => ({
         todos: s.todos.map((t) => t.id === id ? { ...t, ...data } : t),
       })),
@@ -531,10 +563,59 @@ export const useStore = create<Store>()(
         gameRewards: { ...s.gameRewards, ...rewards },
       })),
       resetGameRewards: () => set({ gameRewards: { ...DEFAULT_GAME_REWARDS } }),
+
+      // Notifications — one record per (recipient, refId) so a quest
+      // assigned to 3 kids creates 3 notifs (one per inbox).
+      notify: (recipientIds, kind, title, refId, body) => set((s) => {
+        const now = Date.now()
+        const additions: Notification[] = recipientIds
+          // Skip notifications for the actor (the parent who created the
+          // item). If a kid completes their own quest, no self-notify.
+          .filter((id) => id !== s.currentMemberId)
+          .map((id) => ({
+            id: nanoid(),
+            recipientId: id,
+            kind,
+            title,
+            body,
+            refId,
+            createdAt: now,
+          }))
+        if (additions.length === 0) return s
+        // Cap inbox at 100 most-recent per recipient so the array doesn't
+        // grow unboundedly over months of use.
+        const combined = [...additions, ...s.notifications]
+        const byRecipient = new Map<string, Notification[]>()
+        combined.forEach((n) => {
+          const cur = byRecipient.get(n.recipientId) ?? []
+          cur.push(n)
+          byRecipient.set(n.recipientId, cur)
+        })
+        const trimmed: Notification[] = []
+        byRecipient.forEach((list) => {
+          list.sort((a, b) => b.createdAt - a.createdAt)
+          trimmed.push(...list.slice(0, 100))
+        })
+        return { notifications: trimmed }
+      }),
+      markNotifRead: (id) => set((s) => ({
+        notifications: s.notifications.map((n) => n.id === id ? { ...n, readAt: Date.now() } : n),
+      })),
+      markAllNotifsRead: (memberId) => set((s) => {
+        const now = Date.now()
+        return {
+          notifications: s.notifications.map((n) =>
+            n.recipientId === memberId && !n.readAt ? { ...n, readAt: now } : n
+          ),
+        }
+      }),
+      clearNotifs: (memberId) => set((s) => ({
+        notifications: s.notifications.filter((n) => n.recipientId !== memberId),
+      })),
     }),
     {
       name: 'family-hub-v1',
-      version: 7,
+      version: 8,
       // Strip heavy base64 fields before writing to localStorage. iOS Safari
       // caps localStorage at ~5MB; photo dataUrls, avatars, and ancestor
       // photos easily blow that. Everything stripped here lives on Supabase
@@ -603,19 +684,22 @@ export const useStore = create<Store>()(
           )
           persisted = { ...persisted, vocabWords: [...VOCAB_DATA, ...userAdded] }
         }
-        // v7: GameRewards switched from per-event awards (per-pair,
-        // per-question) to a single per-completion bonus per game. Reset
-        // any older shape onto the new defaults — preserving the player's
-        // previous gameRewards object would either be undefined fields the
-        // games read at 0, or mid-game awards that no longer fire.
-        const gr = persisted.gameRewards
-        const isNewShape =
+        // v7: GameRewards switched to a single per-completion bonus per
+        // game. v8: added Hangman + Scramble keys; back-fill them on
+        // already-migrated state instead of resetting the parent's choices
+        // for the existing three games.
+        let gr = persisted.gameRewards
+        const hasCore =
           gr && typeof gr.memoryComplete === 'number' &&
           typeof gr.guessComplete === 'number' &&
           typeof gr.vocabComplete === 'number'
-        if (!isNewShape) {
-          persisted = { ...persisted, gameRewards: { ...DEFAULT_GAME_REWARDS } }
+        if (!hasCore) {
+          gr = { ...DEFAULT_GAME_REWARDS }
+        } else {
+          if (typeof gr.hangmanComplete !== 'number')  gr = { ...gr, hangmanComplete:  DEFAULT_GAME_REWARDS.hangmanComplete }
+          if (typeof gr.scrambleComplete !== 'number') gr = { ...gr, scrambleComplete: DEFAULT_GAME_REWARDS.scrambleComplete }
         }
+        persisted = { ...persisted, gameRewards: gr }
         return persisted
       },
     }

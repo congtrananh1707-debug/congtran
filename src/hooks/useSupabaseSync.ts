@@ -30,6 +30,7 @@ const TABLE_MAP = [
       id: m.id, name: m.name, role: m.role, emoji: m.emoji, color: m.color,
       birthday: m.birthday, blood_type: m.bloodType, favorite_foods: m.favoriteFoods,
       allergies: m.allergies, goals: m.goals, tokens: m.tokens, avatar_url: m.avatarUrl ?? null,
+      pin: m.pin ?? null,
     })),
     applyRows: (rows: any[]) => ({
       members: rows.map((r) => ({
@@ -37,6 +38,7 @@ const TABLE_MAP = [
         birthday: r.birthday ?? '', bloodType: r.blood_type ?? '',
         favoriteFoods: r.favorite_foods ?? [], allergies: r.allergies ?? [],
         goals: r.goals ?? [], tokens: r.tokens ?? 0, avatarUrl: r.avatar_url ?? undefined,
+        pin: r.pin ?? undefined,
       })),
     }),
   },
