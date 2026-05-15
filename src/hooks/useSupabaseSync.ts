@@ -348,7 +348,14 @@ export async function loadFromSupabase(familyCode: string): Promise<boolean> {
           .select('*')
           .eq('family_code', familyCode)
 
-        if (error) { console.warn(`[sync] load ${entry.table}:`, error.message); return }
+        if (error) {
+          if (isMissingSchema(error)) {
+            console.warn(`[sync] ${entry.table} not on Supabase yet — skip load (run migration to enable cross-device sync)`)
+          } else {
+            console.warn(`[sync] load ${entry.table}:`, error.message)
+          }
+          return
+        }
         const serverRows = data ?? []
 
         const localSnakeRows = entry.getRows(currentState)
@@ -435,6 +442,23 @@ export async function loadFromSupabase(familyCode: string): Promise<boolean> {
 // ── Push: Zustand → Supabase ──────────────────────────────────────────────────
 export type PushResult = { ok: boolean; errors: string[] }
 
+// True if the Supabase response means "this table or column doesn't exist
+// in the schema cache". When that happens we want to skip the table
+// silently — the family just hasn't applied the new migration yet — and
+// keep the rest of the sync running instead of flipping the whole UI into
+// the "Lỗi sync" state.
+function isMissingSchema(err: { code?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false
+  if (err.code === 'PGRST205' || err.code === 'PGRST204') return true
+  const msg = (err.message ?? '').toLowerCase()
+  return (
+    msg.includes('could not find the table') ||
+    msg.includes('could not find the column') ||
+    msg.includes('schema cache') ||
+    msg.includes('does not exist')
+  )
+}
+
 export async function pushToSupabase(familyCode: string): Promise<PushResult> {
   if (!supabase) return { ok: false, errors: ['Supabase chưa cấu hình'] }
   if (!isOnline)  return { ok: false, errors: ['Không có kết nối mạng'] }
@@ -459,7 +483,13 @@ export async function pushToSupabase(familyCode: string): Promise<PushResult> {
 
         const { data: existing, error: fetchErr } = await client
           .from(entry.table).select('id').eq('family_code', familyCode)
-        if (fetchErr) { errors.push(`[${entry.table}] fetch: ${fetchErr.message}`); return }
+        if (fetchErr) {
+          if (isMissingSchema(fetchErr)) {
+            console.warn(`[sync] ${entry.table} not on Supabase yet — skipping push (run migration to enable cross-device sync)`)
+            return
+          }
+          errors.push(`[${entry.table}] fetch: ${fetchErr.message}`); return
+        }
 
         const existingIds = new Set((existing ?? []).map((r: any) => r.id))
 
@@ -491,7 +521,13 @@ export async function pushToSupabase(familyCode: string): Promise<PushResult> {
           const { error: upsertErr } = await client
             .from(entry.table)
             .upsert(withMeta, { onConflict: 'id,family_code' })
-          if (upsertErr) { errors.push(`[${entry.table}] upsert: ${upsertErr.message}`); return }
+          if (upsertErr) {
+            if (isMissingSchema(upsertErr)) {
+              console.warn(`[sync] ${entry.table} upsert skipped — schema not migrated`)
+              return
+            }
+            errors.push(`[${entry.table}] upsert: ${upsertErr.message}`); return
+          }
 
           localRows.forEach((r) => rowTs.set(`${entry.table}:${r.id}`, pushTime))
         }
@@ -505,7 +541,7 @@ export async function pushToSupabase(familyCode: string): Promise<PushResult> {
         if (orphanIds.length > 0) {
           const { error: delErr } = await client
             .from(entry.table).delete().eq('family_code', familyCode).in('id', orphanIds)
-          if (delErr) errors.push(`[${entry.table}] del: ${delErr.message}`)
+          if (delErr && !isMissingSchema(delErr)) errors.push(`[${entry.table}] del: ${delErr.message}`)
         }
       })
     )
@@ -517,7 +553,13 @@ export async function pushToSupabase(familyCode: string): Promise<PushResult> {
       const { error: delErr } = await client
         .from(table).delete().eq('family_code', familyCode).in('id', ids)
       if (delErr) {
-        errors.push(`[${table}] queue-del: ${delErr.message}`)
+        if (isMissingSchema(delErr)) {
+          // Table doesn't exist on this Supabase yet; treat the queued
+          // delete as confirmed so it doesn't get retried forever.
+          confirmDeleted(table, ids)
+        } else {
+          errors.push(`[${table}] queue-del: ${delErr.message}`)
+        }
       } else {
         confirmDeleted(table, ids)
       }
