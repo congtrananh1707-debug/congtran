@@ -7,8 +7,8 @@ import type { Ancestor, Anniversary } from '../../types'
 
 // ─── Family Tree Canvas ────────────────────────────────────────────────────────
 
-const NODE_W = 136
-const NODE_H = 94
+const NODE_W = 144
+const NODE_H = 118
 const H_GAP  = 48
 const V_GAP  = 96
 
@@ -514,33 +514,34 @@ function FamilyTreeSVG({
                 {/* Photo or emoji */}
                 {n.ancestor.photoUrl ? (
                   <image href={n.ancestor.photoUrl}
-                    x={NODE_W / 2 - 22} y={5} width={44} height={44}
+                    x={NODE_W / 2 - 22} y={6} width={44} height={44}
                     clipPath="circle(22px at 22px 22px)"
                     preserveAspectRatio="xMidYMid slice" />
                 ) : (
-                  <text x={NODE_W / 2} y={36} textAnchor="middle" fontSize="28">
+                  <text x={NODE_W / 2} y={38} textAnchor="middle" fontSize="28">
                     {isMale ? '👴' : '👵'}
                   </text>
                 )}
-                {/* Name (1 or 2 lines) */}
-                <text x={NODE_W / 2} y={line2 ? 58 : 63}
-                  textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">
+                {/* Name (1 or 2 lines) — extra breathing room so the descender
+                     of the relationship and years lines never clips the card. */}
+                <text x={NODE_W / 2} y={line2 ? 64 : 70}
+                  textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">
                   {line1}
                 </text>
                 {line2 && (
-                  <text x={NODE_W / 2} y={69}
-                    textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">
+                  <text x={NODE_W / 2} y={77}
+                    textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">
                     {line2}
                   </text>
                 )}
                 {/* Relationship */}
-                <text x={NODE_W / 2} y={line2 ? 80 : 75}
-                  textAnchor="middle" fill="rgba(255,255,255,0.6)" fontSize="9">
-                  {(n.ancestor.relationship || (isMale ? 'Nam' : 'Nữ')).slice(0, 16)}
+                <text x={NODE_W / 2} y={line2 ? 93 : 88}
+                  textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="9">
+                  {(n.ancestor.relationship || (isMale ? 'Nam' : 'Nữ')).slice(0, 20)}
                 </text>
                 {/* Years */}
-                <text x={NODE_W / 2} y={line2 ? 90 : 85}
-                  textAnchor="middle" fill="rgba(255,255,255,0.45)" fontSize="8">
+                <text x={NODE_W / 2} y={line2 ? 107 : 102}
+                  textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="8">
                   {n.ancestor.birthYear ?? '?'} – {n.ancestor.deathYear ?? 'nay'}
                 </text>
               </g>
@@ -675,7 +676,7 @@ function AncestorFormFields({
       <div className="col-span-2">
         <label className="text-xs text-amber-700 font-medium block mb-1">Cha/Mẹ trên cây</label>
         {available.length === 0 ? (
-          <p className="text-xs text-amber-500 italic">Chưa có tổ tiên nào.</p>
+          <p className="text-xs text-amber-500 italic">Chưa có thành viên nào.</p>
         ) : (
           <div className="max-h-28 overflow-y-auto space-y-1 bg-amber-50/60 rounded-xl p-2 border border-amber-200">
             {available.map((a) => (
@@ -768,7 +769,7 @@ function AddAncestorModal({ ancestors, onClose }: { ancestors: Ancestor[]; onClo
       <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
         className="bg-amber-50 rounded-3xl p-6 max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto border border-amber-200"
         onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-xl font-bold text-amber-900 mb-5">🌿 Thêm tổ tiên</h2>
+        <h2 className="text-xl font-bold text-amber-900 mb-5">🌿 Thêm thành viên</h2>
 
         <AncestorFormFields form={form} setForm={setForm} ancestors={ancestors} inputCls={inputCls} />
 
@@ -783,7 +784,7 @@ function AddAncestorModal({ ancestors, onClose }: { ancestors: Ancestor[]; onClo
           <button onClick={onClose} disabled={done} className="flex-1 bg-amber-100 text-amber-800 py-2.5 rounded-xl font-medium text-sm hover:bg-amber-200 disabled:opacity-40">Hủy</button>
           <button onClick={submit} disabled={!form.name.trim() || done}
             className="flex-1 bg-amber-800 text-amber-50 py-2.5 rounded-xl font-medium text-sm hover:bg-amber-900 disabled:opacity-50 transition-all">
-            {done ? '✅ Đã thêm!' : 'Thêm tổ tiên'}
+            {done ? '✅ Đã thêm!' : 'Thêm thành viên'}
           </button>
         </div>
       </motion.div>
@@ -831,7 +832,7 @@ function EditAncestorModal({ ancestor, ancestors, onClose }: { ancestor: Ancesto
       <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
         className="bg-amber-50 rounded-3xl p-6 max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto border border-amber-200"
         onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-xl font-bold text-amber-900 mb-5">✏️ Sửa thông tin tổ tiên</h2>
+        <h2 className="text-xl font-bold text-amber-900 mb-5">✏️ Sửa thông tin thành viên</h2>
 
         <AncestorFormFields form={form} setForm={setForm} ancestors={ancestors} excludeId={ancestor.id} inputCls={inputCls} />
 
@@ -949,7 +950,7 @@ function AncestralCalendar() {
                 <input type="date" value={form.solarDate ?? ''} onChange={(e) => setForm((f) => ({ ...f, solarDate: e.target.value }))} className={inputCls} />
               </div>
               <div className="col-span-2">
-                <label className="text-xs text-amber-700 font-medium block mb-1">Liên kết tổ tiên</label>
+                <label className="text-xs text-amber-700 font-medium block mb-1">Liên kết thành viên</label>
                 <select value={form.ancestorId ?? ''} onChange={(e) => setForm((f) => ({ ...f, ancestorId: e.target.value || undefined }))} className={inputCls}>
                   <option value="">— Không liên kết —</option>
                   {ancestors.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.relationship})</option>)}
@@ -1175,7 +1176,7 @@ export default function HeritageView() {
           {isParent && tab === 'tree' && (
             <button onClick={() => setShowAddAncestor(true)}
               className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-xl text-sm font-medium">
-              + Thêm tổ tiên
+              + Thêm thành viên
             </button>
           )}
         </div>
@@ -1201,7 +1202,7 @@ export default function HeritageView() {
               <div className="text-center py-16">
                 <p className="text-6xl mb-4">🌿</p>
                 <p className="text-amber-200 font-medium text-lg">Cây gia phả chưa có dữ liệu</p>
-                <p className="text-amber-400 text-sm mt-1">Nhấn "+ Thêm tổ tiên" để bắt đầu vẽ cây nhà mình</p>
+                <p className="text-amber-400 text-sm mt-1">Nhấn "+ Thêm thành viên" để bắt đầu vẽ cây nhà mình</p>
               </div>
             ) : (
               <FamilyTreeSVG ancestors={ancestors} onNodeClick={setSelectedAncestor} isParent={isParent} />
