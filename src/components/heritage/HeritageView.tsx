@@ -160,10 +160,17 @@ function FamilyTreeSVG({
 
   const { svgW, svgH, minX, minY } = useMemo(() => {
     if (nodes.length === 0) return { svgW: 0, svgH: 0, minX: 0, minY: 0 }
+    // A node's logical (n.x, n.y) is the TOP-LEFT corner of its NODE_W ×
+    // NODE_H rect (the `<g transform="translate(x,y)">` puts the rect's
+    // origin there). The bounding box therefore extends NODE_W to the
+    // right and NODE_H down from the largest coordinates — earlier this
+    // function treated n.x as the center, which clipped the right edge of
+    // the rightmost ancestor by NODE_W/2 − 48 pixels (≈ 24 px at 144-wide
+    // nodes).
     const xs = nodes.map((n) => n.x)
     const ys = nodes.map((n) => n.y)
-    const minX = Math.min(...xs) - NODE_W / 2 - 48
-    const maxX = Math.max(...xs) + NODE_W / 2 + 48
+    const minX = Math.min(...xs) - 48
+    const maxX = Math.max(...xs) + NODE_W + 48
     const minY = Math.min(...ys) - 48
     const maxY = Math.max(...ys) + NODE_H + 48
     return { svgW: maxX - minX, svgH: maxY - minY, minX, minY }
