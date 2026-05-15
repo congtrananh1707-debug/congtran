@@ -497,7 +497,19 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'family-hub-v1',
-      version: 3,
+      version: 4,
+      // Strip heavy base64 fields before writing to localStorage. iOS Safari
+      // caps localStorage at ~5MB; photo dataUrls, avatars, and ancestor
+      // photos easily blow that. Everything stripped here lives on Supabase
+      // and hydrates back into memory on the next sync load (typically <2s
+      // after auth). The in-memory state is untouched — only persistence is
+      // slimmed down.
+      partialize: (state) => ({
+        ...state,
+        photos: [],
+        members: state.members.map(({ avatarUrl: _drop, ...m }) => m),
+        ancestors: state.ancestors.map(({ photoUrl: _drop, ...a }) => a),
+      }),
       migrate: (persisted: any, version: number) => {
         if (version === 0) {
           return { ...persisted, pin: '1234', isAuthenticated: false }
@@ -510,11 +522,22 @@ export const useStore = create<Store>()(
             anniversaries: SEED_ANNIVERSARIES,
           }
         }
-        // v3: Enforce deterministic familyCode = fam-${pin}.
-        // Devices that had a nanoid familyCode (from the old random-init bug) are
-        // migrated here so all devices with the same PIN use the same partition.
-        if (persisted.pin && !persisted.familyCode?.startsWith('fam-')) {
-          return { ...persisted, familyCode: `fam-${persisted.pin}` }
+        if (version < 3) {
+          if (persisted.pin && !persisted.familyCode?.startsWith('fam-')) {
+            return { ...persisted, familyCode: `fam-${persisted.pin}` }
+          }
+        }
+        // v4: Free up localStorage by dropping the heavy base64 fields from
+        // any pre-existing persisted state. They re-hydrate from Supabase
+        // on the next sync. Applied unconditionally so users currently at
+        // quota get relief on the very next page load.
+        if (version < 4) {
+          return {
+            ...persisted,
+            photos: [],
+            members: (persisted.members ?? []).map(({ avatarUrl: _drop, ...m }: any) => m),
+            ancestors: (persisted.ancestors ?? []).map(({ photoUrl: _drop, ...a }: any) => a),
+          }
         }
         return persisted
       },

@@ -22,14 +22,27 @@
 <body>
   <div class="card">
     <div style="font-size:3rem">🔐</div>
-    <h1>Reset mã PIN</h1>
-    <p>Nhấn nút bên dưới để đặt lại PIN gia đình về:</p>
-    <div class="pin">1234</div>
-    <p class="ok" id="ok">✅ Đã reset thành công!</p>
+    <h1>Reset & Khôi phục</h1>
+    <p>Chọn thao tác bạn cần:</p>
+    <p class="ok" id="ok"></p>
     <button class="btn" onclick="doReset()">Reset PIN về 1234</button>
+    <div style="height:12px"></div>
+    <button class="btn" style="background:#ef4444" onclick="clearCache()">Xóa cache ảnh (sửa lỗi quota)</button>
+    <div style="height:12px"></div>
+    <button class="btn" style="background:#6b7280" onclick="nukeAll()">Xóa toàn bộ dữ liệu local</button>
+    <p style="font-size:0.75rem;color:#9ca3af;margin-top:16px">
+      Dữ liệu gia đình (thành viên, gia phả, ảnh) vẫn an toàn trên Supabase và sẽ tự đồng bộ lại sau khi đăng nhập.
+    </p>
   </div>
 
   <script>
+    function showOk(msg) {
+      var el = document.getElementById('ok')
+      el.textContent = msg
+      el.style.display = 'block'
+      setTimeout(function() { window.location.href = '/' }, 1500)
+    }
+
     function doReset() {
       try {
         var raw = localStorage.getItem('family-hub-v1') || '{}'
@@ -39,14 +52,46 @@
         d.state.isAuthenticated = false
         d.version = 1
         localStorage.setItem('family-hub-v1', JSON.stringify(d))
-        document.getElementById('ok').style.display = 'block'
-        setTimeout(function() { window.location.href = '/' }, 1200)
+        showOk('✅ Đã reset PIN về 1234')
       } catch(e) {
-        // If localStorage is empty or corrupted, just clear it
         localStorage.removeItem('family-hub-v1')
-        document.getElementById('ok').style.display = 'block'
-        setTimeout(function() { window.location.href = '/' }, 1200)
+        showOk('✅ Đã reset')
       }
+    }
+
+    // Strip the heavy base64 fields (photos, member avatars, ancestor photos)
+    // from localStorage. They live on Supabase and re-hydrate on next sync.
+    // Use this when iOS Safari shows "quota exceeded" errors.
+    function clearCache() {
+      try {
+        var raw = localStorage.getItem('family-hub-v1')
+        if (!raw) { showOk('✅ Không có cache cần xóa'); return }
+        var d = JSON.parse(raw)
+        if (d && d.state) {
+          d.state.photos = []
+          if (Array.isArray(d.state.members)) {
+            d.state.members = d.state.members.map(function(m) {
+              var c = Object.assign({}, m); delete c.avatarUrl; return c
+            })
+          }
+          if (Array.isArray(d.state.ancestors)) {
+            d.state.ancestors = d.state.ancestors.map(function(a) {
+              var c = Object.assign({}, a); delete c.photoUrl; return c
+            })
+          }
+        }
+        localStorage.setItem('family-hub-v1', JSON.stringify(d))
+        showOk('✅ Đã xóa cache ảnh — đồng bộ lại sẽ tự tải về')
+      } catch(e) {
+        localStorage.removeItem('family-hub-v1')
+        showOk('✅ Đã xóa toàn bộ — đăng nhập lại để đồng bộ')
+      }
+    }
+
+    function nukeAll() {
+      if (!confirm('Xóa TOÀN BỘ dữ liệu local? (Server không bị ảnh hưởng)')) return
+      try { localStorage.clear() } catch(e) {}
+      showOk('✅ Đã xóa hết — đăng nhập lại')
     }
   </script>
 </body>
