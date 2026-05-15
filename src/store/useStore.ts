@@ -185,7 +185,8 @@ type Store = {
 
   // Auth actions
   verifyPin: (input: string) => boolean
-  logout: () => void
+  logout: () => void              // full sign-out: drops family auth — only used for "leave family"
+  switchMember: () => void        // light sign-out: keeps family auth, just clears currentMemberId
   setCurrentMember: (id: string) => void
   setPin: (pin: string) => void
 
@@ -357,6 +358,7 @@ export const useStore = create<Store>()(
         return false
       },
       logout: () => set({ isAuthenticated: false, currentMemberId: null }),
+      switchMember: () => set({ currentMemberId: null }),
       setCurrentMember: (id) => set({ currentMemberId: id }),
       setPin: (pin) => set({ pin, familyCode: `fam-${pin}` }),
 

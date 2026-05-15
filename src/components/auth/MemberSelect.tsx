@@ -96,10 +96,12 @@ export default function MemberSelect() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.5 }}
-        onClick={logout}
-        className="mt-10 text-orange-100 hover:text-white text-sm underline"
+        onClick={() => {
+          if (window.confirm('Đăng xuất khỏi gia đình hiện tại? Bạn sẽ phải nhập lại PIN gia đình để vào lại.')) logout()
+        }}
+        className="mt-10 text-orange-100 hover:text-white text-xs underline opacity-70"
       >
-        ← Đổi gia đình (đăng xuất)
+        Đăng xuất khỏi gia đình →
       </motion.button>
 
       {/* Per-member PIN modal */}

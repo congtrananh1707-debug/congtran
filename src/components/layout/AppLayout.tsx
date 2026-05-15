@@ -18,7 +18,6 @@ export default function AppLayout({ children, view, setView, setProfileId }: Pro
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const currentMemberId = useStore((s) => s.currentMemberId)
   const members  = useStore((s) => s.members)
-  const logout   = useStore((s) => s.logout)
   const appName  = useStore((s) => s.appName)
   const bgImage  = useStore((s) => s.bgImage)
   const darkMode = useStore((s) => s.darkMode)
@@ -41,7 +40,7 @@ export default function AppLayout({ children, view, setView, setProfileId }: Pro
 
       {/* Desktop Sidebar */}
       <div className="hidden lg:flex relative z-10">
-        <Sidebar view={view} setView={navigate} me={me} logout={logout} />
+        <Sidebar view={view} setView={navigate} me={me} />
       </div>
 
       {/* Mobile Sidebar overlay */}
@@ -49,7 +48,7 @@ export default function AppLayout({ children, view, setView, setProfileId }: Pro
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
           <div className="absolute left-0 top-0 h-full w-72 z-50">
-            <Sidebar view={view} setView={navigate} me={me} logout={logout} />
+            <Sidebar view={view} setView={navigate} me={me} />
           </div>
         </div>
       )}

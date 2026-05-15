@@ -26,11 +26,11 @@ type Props = {
   view: AppView
   setView: (v: AppView) => void
   me?: Member
-  logout: () => void
 }
 
-export default function Sidebar({ view, setView, me, logout }: Props) {
-  const appName = useStore((s) => s.appName)
+export default function Sidebar({ view, setView, me }: Props) {
+  const appName       = useStore((s) => s.appName)
+  const switchMember  = useStore((s) => s.switchMember)
   const isParent = me ? isParentRole(me.role) : false
   const roleLabel = me ? ROLE_CONFIG[me.role]?.label ?? me.role : ''
 
@@ -81,11 +81,11 @@ export default function Sidebar({ view, setView, me, logout }: Props) {
         ))}
       </nav>
 
-      {/* Logout */}
+      {/* Switch member (keeps family auth — full sign-out lives in Settings) */}
       <div className="p-3 border-t border-gray-100 dark:border-gray-700">
-        <button onClick={logout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 transition-all">
-          <span className="text-lg">🚪</span> Đổi thành viên
+        <button onClick={switchMember}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-violet-50 dark:hover:bg-violet-900/30 hover:text-violet-600 transition-all">
+          <span className="text-lg">👥</span> Đổi thành viên
         </button>
       </div>
     </aside>

@@ -746,9 +746,15 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Logout */}
-      <button onClick={logout} className="w-full bg-red-50 dark:bg-red-900/30 hover:bg-red-100 text-red-600 py-3.5 rounded-2xl font-medium transition-all">
-        🚪 Đổi thành viên / Đăng xuất
+      {/* Logout — full sign-out from family. Daily flow uses "Đổi thành
+          viên" in the sidebar which keeps the family-PIN session alive. */}
+      <button
+        onClick={() => {
+          if (window.confirm('Đăng xuất khỏi gia đình? Bạn sẽ phải nhập lại PIN gia đình để vào lại.')) logout()
+        }}
+        className="w-full bg-red-50 dark:bg-red-900/30 hover:bg-red-100 text-red-600 py-3.5 rounded-2xl font-medium transition-all"
+      >
+        🚪 Đăng xuất khỏi gia đình
       </button>
     </div>
   )
